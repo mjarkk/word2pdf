@@ -1,0 +1,136 @@
+diff --git a/postprocess/Module_postprocess.mk b/postprocess/Module_postprocess.mk
+index 0fbede6a9..1bae4ae53 100644
+--- a/postprocess/Module_postprocess.mk
++++ b/postprocess/Module_postprocess.mk
+@@ -18,11 +18,13 @@ $(eval $(call gb_Module_add_targets,postprocess,\
+ 	Rdb_services \
+ ))
+ ifeq ($(gb_Side),host)
++ifneq ($(wildcard $(SRCDIR)/icon-themes),)
+ $(eval $(call gb_Module_add_targets,postprocess,\
+ 	CustomTarget_images \
+ 	Package_images \
+ ))
+ endif
++endif
+ 
+ $(eval $(call gb_Module_add_l10n_targets,postprocess,\
+ 	Package_registry \
+diff --git a/solenv/gbuild/LinkTarget.mk b/solenv/gbuild/LinkTarget.mk
+index 37e37fc01..bbcf177d4 100644
+--- a/solenv/gbuild/LinkTarget.mk
++++ b/solenv/gbuild/LinkTarget.mk
+@@ -1470,7 +1470,7 @@ endef # gb_LinkTarget_use_static_libraries
+ 
+ # call gb_LinkTarget_add_cobject,linktarget,sourcefile,cflags,linktargetmakefilename
+ define gb_LinkTarget_add_cobject
+-$(if $(wildcard $(call gb_CObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_CObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_CObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_CObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : COBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : COBJECTS += $(2)
+ 
+@@ -1495,7 +1495,7 @@ endef
+ # to create the PCH, so non-empty cxxflags here mean the object cannot use the PCH, and the add_exception_cxxobject
+ # variant passes the necessary flags by setting the extra argument.
+ define gb_LinkTarget_add_cxxobject_internal
+-$(if $(wildcard $(call gb_CxxObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_CxxObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : CXXOBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : CXXOBJECTS += $(2)
+ 
+@@ -1527,7 +1527,7 @@ endef
+ 
+ # call gb_LinkTarget_add_objcobject,linktarget,sourcefile,objcflags,linktargetmakefilename
+ define gb_LinkTarget_add_objcobject
+-$(if $(wildcard $(call gb_ObjCObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_ObjCObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_ObjCObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_ObjCObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : OBJCOBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : OBJCOBJECTS += $(2)
+ 
+@@ -1548,7 +1548,7 @@ endef
+ 
+ # call gb_LinkTarget_add_objcxxobject,linktarget,sourcefile,objcxxflags,linktargetmakefilename
+ define gb_LinkTarget_add_objcxxobject
+-$(if $(wildcard $(call gb_ObjCxxObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_ObjCxxObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_ObjCxxObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_ObjCxxObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : OBJCXXOBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : OBJCXXOBJECTS += $(2)
+ 
+@@ -1569,7 +1569,7 @@ endef
+ 
+ # call gb_LinkTarget_add_cxxclrobject,linktarget,sourcefile,cxxclrflags,linktargetmakefilename
+ define gb_LinkTarget_add_cxxclrobject
+-$(if $(wildcard $(call gb_CxxClrObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxClrObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_CxxClrObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxClrObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : CXXCLROBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : CXXCLROBJECTS += $(2)
+ 
+@@ -1590,7 +1590,7 @@ endef
+ 
+ # call gb_LinkTarget_add_asmobject,linktarget,sourcefile
+ define gb_LinkTarget_add_asmobject
+-$(if $(wildcard $(call gb_AsmObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_AsmObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_AsmObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_AsmObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : ASMOBJECTS += $(2)
+ $(call gb_LinkTarget_get_clean_target,$(1)) : ASMOBJECTS += $(2)
+ 
+@@ -2110,7 +2110,7 @@ define gb_LinkTarget__add_reuse_precompiled_header_object
+ # Clang-style
+ ifneq ($(BUILDING_PCH_WITH_OBJ),)
+ # We need to link in also the PCH's object file. Again, rely on a special for_reuse target for dependencies.
+-$(if $(wildcard $(call gb_CxxObject_get_source,$(SRCDIR),$(2))),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxObject_get_source,$(SRCDIR),$(2)))))
++$(if $(wildcard $(call gb_CxxObject_get_source,$(SRCDIR),$(2))),,$(if $(gb_Module_EXTRACTED),,$(eval $(call gb_Output_error,No such source file $(call gb_CxxObject_get_source,$(SRCDIR),$(2))))))
+ $(call gb_LinkTarget_get_target,$(1)) : CXXOBJECTS += $(2)
+ endif
+ # MSVC-style
+diff --git a/solenv/gbuild/Module.mk b/solenv/gbuild/Module.mk
+index 01aed156c..a1986cd46 100644
+--- a/solenv/gbuild/Module.mk
++++ b/solenv/gbuild/Module.mk
+@@ -404,8 +404,16 @@ define gb_Module__modulefile
+ $(patsubst $(1):%,%,$(filter $(1):%,$(gb_Module_MODULELOCATIONS)))/$(2)/Module_$(2).mk
+ endef
+ 
++# A tree extracted by libreoffice-slim (marked by .slim-origin) only contains the modules
++# it needs; the others are skipped instead of being an error.
++gb_Module_EXTRACTED := $(wildcard $(SRCDIR)/.slim-origin)
++
+ define gb_Module_add_moduledir
+-$(if $(wildcard $(call gb_Module__modulefile,$(1),$(2))),,$(call gb_Output_error,Module does not exist: $(call gb_Module__modulefile,$(1),$(2))))
++$(if $(wildcard $(call gb_Module__modulefile,$(1),$(2))),$(call gb_Module__add_moduledir,$(1),$(2)),$(if $(gb_Module_EXTRACTED),,$(call gb_Output_error,Module does not exist: $(call gb_Module__modulefile,$(1),$(2)))))
++
++endef
++
++define gb_Module__add_moduledir
+ include $(call gb_Module__modulefile,$(1),$(2))
+ $(call gb_Module_get_target,$(1)) : $$(firstword $$(gb_Module_TARGETSTACK))
+ $(call gb_Module_get_l10n_target,$(1)) : $$(firstword $$(gb_Module_L10NTARGETSTACK))
+diff --git a/solenv/gbuild/Rdb.mk b/solenv/gbuild/Rdb.mk
+index fff774dcb..f845d3782 100644
+--- a/solenv/gbuild/Rdb.mk
++++ b/solenv/gbuild/Rdb.mk
+@@ -62,14 +62,22 @@ $(call gb_Helper_install_final, \
+ 
+ endef
+ 
++# A build restricted to some UNO components (see static.mk) only puts those into the services
++# rdb, so the libraries of the other components are not built either.
++gb_Rdb_COMPONENTFILES := $(if $(wildcard $(SRCDIR)/slim/component-files.list),$(file <$(SRCDIR)/slim/component-files.list))
++
+ define gb_Rdb_add_component
++$(if $(and $(gb_Rdb_COMPONENTFILES),$(filter services,$(1)),$(filter-out $(gb_Rdb_COMPONENTFILES),$(2))),,\
+ $(call gb_Rdb_get_target,$(1)) : $(call gb_ComponentTarget_get_target,$(2))
+ $(call gb_Rdb_get_target,$(1)) : COMPONENTS += $(2)
+-
++)
+ endef
+ 
++gb_Rdb__module_exists = $(wildcard $(SRCDIR)/$(1)/Module_$(1).mk)
++
++# components of modules missing from an extracted tree are left out (see Module.mk)
+ define gb_Rdb_add_components
+-$(foreach component,$(2),$(call gb_Rdb_add_component,$(1),$(component)))
++$(foreach component,$(2),$(if $(or $(if $(gb_Module_EXTRACTED),,TRUE),$(call gb_Rdb__module_exists,$(firstword $(subst /, ,$(component))))),$(call gb_Rdb_add_component,$(1),$(component))))
+ 
+ endef
+ 

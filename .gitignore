@@ -1,0 +1,6 @@
+# clones and build trees, all reproducible from LO_VERSION, modules.txt, overlay/ and patches/
+/repos/
+/work/
+/src/
+/out/
+__pycache__/

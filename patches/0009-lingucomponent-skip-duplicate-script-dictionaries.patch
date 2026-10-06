@@ -1,0 +1,25 @@
+diff --git a/lingucomponent/source/lingutil/lingutil.cxx b/lingucomponent/source/lingutil/lingutil.cxx
+index 10a69a517..8fffd994e 100644
+--- a/lingucomponent/source/lingutil/lingutil.cxx
++++ b/lingucomponent/source/lingutil/lingutil.cxx
+@@ -110,6 +110,20 @@ static void GetOldStyleDicsInDir(
+             if (sChunk == "hu-HU-u8")
+                 sChunk = "hu-HU";
+ 
++            // A script subtag makes the tag one that only liblangtag can handle, and loading its
++            // database costs tens of MB. Debian ships hyph_en_Latn_US.dic next to the same
++            // hyph_en_US.dic, so skip such a name when the dictionary exists without the script.
++            if (sal_Int32 nLang = sChunk.indexOf('-'); nLang > 0
++                && sChunk.getLength() > nLang + 6 && sChunk[nLang + 5] == '-')
++            {
++                OUString aWithoutScript = sPath.copy(0, nStartIndex) + aSystemPrefix
++                    + sChunk.subView(0, nLang) + "_" + sChunk.copy(nLang + 6).replace('-', '_')
++                    + aSystemSuffix;
++                osl::DirectoryItem aWithoutScriptItem;
++                if (osl::DirectoryItem::get(aWithoutScript, aWithoutScriptItem) == osl::FileBase::E_None)
++                    continue;
++            }
++
+             LanguageTag aLangTag(sChunk, true);
+             if (!aLangTag.isValidBcp47())
+                 continue;

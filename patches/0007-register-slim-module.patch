@@ -1,0 +1,24 @@
+diff --git a/Repository.mk b/Repository.mk
+index 79eceddda..c5eb1e28b 100644
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -119,6 +119,7 @@ $(eval $(call gb_Helper_register_executables_for_install,OOO,brand, \
+ 		) \
+ 		updater )\
+ 	$(call gb_Helper_optional,BREAKPAD,minidump_upload) \
++	$(if $(DISABLE_DYNLOADING),word2pdf) \
+ 	$(call gb_Helper_optional,FUZZERS,wmffuzzer) \
+ 	$(call gb_Helper_optional,FUZZERS,jpgfuzzer) \
+ 	$(call gb_Helper_optional,FUZZERS,giffuzzer) \
+diff --git a/RepositoryModule_host.mk b/RepositoryModule_host.mk
+index bb5add564..6b4df384f 100644
+--- a/RepositoryModule_host.mk
++++ b/RepositoryModule_host.mk
+@@ -144,6 +144,7 @@ $(eval $(call gb_Module_add_moduledirs,libreoffice,\
+ 	$(call gb_Helper_optional,DESKTOP,setup_native) \
+ 	sfx2 \
+ 	shell \
++	slim \
+     $(if $(ENABLE_WASM_STRIP_BASIC_DRAW_MATH_IMPRESS),, \
+ 	slideshow \
+     ) \

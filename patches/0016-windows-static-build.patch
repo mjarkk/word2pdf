@@ -1,0 +1,303 @@
+diff --git a/RepositoryFixes.mk b/RepositoryFixes.mk
+index 4cacbbce3..4d8e2dddb 100644
+--- a/RepositoryFixes.mk
++++ b/RepositoryFixes.mk
+@@ -98,7 +98,7 @@ gb_Library_ILIBFILENAMES += \
+ 	$(foreach lib,$(gb_Library_LIBLIBFILENAMES),$(lib):lib$(lib)$(gb_Library_PLAINEXT))
+ 
+ gb_Library_FILENAMES := $(filter-out $(foreach lib,$(gb_Library_LIBLIBFILENAMES),$(lib):%),$(gb_Library_FILENAMES))
+-gb_Library_FILENAMES += $(foreach lib,$(gb_Library_LIBLIBFILENAMES),$(lib):lib$(lib).dll)
++gb_Library_FILENAMES += $(foreach lib,$(gb_Library_LIBLIBFILENAMES),$(lib):lib$(lib)$(gb_Library_DLLEXT))
+ 
+ endif # ifeq ($(OS),WNT)
+ 
+diff --git a/external/argon2/ExternalPackage_argon2.mk b/external/argon2/ExternalPackage_argon2.mk
+index 6542d7925..07924d440 100644
+--- a/external/argon2/ExternalPackage_argon2.mk
++++ b/external/argon2/ExternalPackage_argon2.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,argon2,argon2))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,argon2,argon2))
+ 
+-ifeq ($(COM),MSC)
++ifeq ($(COM)$(DISABLE_DYNLOADING),MSC)
+ $(eval $(call gb_ExternalPackage_add_file,argon2,$(LIBO_LIB_FOLDER)/Argon2OptDll.dll,vs2015/build/Argon2OptDll.dll))
+ endif # $(COM)
+ 
+diff --git a/external/argon2/ExternalProject_argon2.mk b/external/argon2/ExternalProject_argon2.mk
+index 80d6b0596..2b549cef0 100644
+--- a/external/argon2/ExternalProject_argon2.mk
++++ b/external/argon2/ExternalProject_argon2.mk
+@@ -26,12 +26,13 @@ $(call gb_ExternalProject_get_state_target,argon2,build):
+ 			$(gb_MSBUILD_CONFIG_AND_PLATFORM) \
+ 			/p:PlatformToolset=$(VCTOOLSET) /p:VisualStudioVersion=$(VCVER) /ToolsVersion:Current \
+ 			$(if $(filter 10,$(WINDOWS_SDK_VERSION)),/p:WindowsTargetPlatformVersion=$(UCRTVERSION)) \
+-		&& MSBuild.exe vs2015/Argon2OptTestCI/Argon2OptTestCI.vcxproj \
++			$(if $(filter TRUE,$(DISABLE_DYNLOADING)),/p:ConfigurationType=StaticLibrary) \
++		$(if $(filter TRUE,$(DISABLE_DYNLOADING)),,&& MSBuild.exe vs2015/Argon2OptTestCI/Argon2OptTestCI.vcxproj \
+ 			/p:SolutionDir="$(gb_UnpackedTarball_workdir)/argon2/" \
+ 			$(gb_MSBUILD_CONFIG_AND_PLATFORM) \
+ 			/p:PlatformToolset=$(VCTOOLSET) /p:VisualStudioVersion=$(VCVER) /ToolsVersion:Current \
+ 			$(if $(filter 10,$(WINDOWS_SDK_VERSION)),/p:WindowsTargetPlatformVersion=$(UCRTVERSION)) \
+-		$(if $(CROSS_COMPILING),,&& vs2015/build/Argon2OptTestCI.exe) \
++		$(if $(CROSS_COMPILING),,&& vs2015/build/Argon2OptTestCI.exe)) \
+ 	)
+ 	$(call gb_Trace_EndRange,argon2,EXTERNAL)
+ 
+diff --git a/external/lcms2/ExternalProject_lcms2.mk b/external/lcms2/ExternalProject_lcms2.mk
+index 47d9089dc..0dcba4275 100644
+--- a/external/lcms2/ExternalProject_lcms2.mk
++++ b/external/lcms2/ExternalProject_lcms2.mk
+@@ -21,6 +21,7 @@ $(call gb_ExternalProject_get_state_target,lcms2,build):
+ 			$(gb_MSBUILD_CONFIG_AND_PLATFORM) /p:TargetName=lcms2 \
+ 			/p:PlatformToolset=$(VCTOOLSET) /p:VisualStudioVersion=$(VCVER) /ToolsVersion:Current \
+ 			$(if $(filter 10,$(WINDOWS_SDK_VERSION)),/p:WindowsTargetPlatformVersion=$(UCRTVERSION)) \
++			$(if $(filter TRUE,$(DISABLE_DYNLOADING)),/p:ConfigurationType=StaticLibrary) \
+ 	,Projects/VC2019/lcms2_DLL)
+ 	$(call gb_Trace_EndRange,lcms2,EXTERNAL)
+ else
+diff --git a/external/libxml2/ExternalProject_libxml2.mk b/external/libxml2/ExternalProject_libxml2.mk
+index 26005343d..f8553cf37 100644
+--- a/external/libxml2/ExternalProject_libxml2.mk
++++ b/external/libxml2/ExternalProject_libxml2.mk
+@@ -27,6 +27,7 @@ $(call gb_ExternalProject_get_state_target,libxml2,build):
+ 	$(call gb_ExternalProject_run,build,\
+ 		cscript /e:javascript configure.js \
+ 			iconv=no icu=yes sax1=yes $(if $(MSVC_USE_DEBUG_RUNTIME),cruntime=/MDd) \
++			$(if $(filter TRUE,$(DISABLE_DYNLOADING)),static=yes) \
+ 			$(if $(filter TRUE,$(ENABLE_DBGUTIL)),debug=yes) \
+ 		&& nmake \
+ 	,win32)
+diff --git a/external/openssl/ExternalPackage_openssl.mk b/external/openssl/ExternalPackage_openssl.mk
+index 7d02dfc6e..8af7c5a82 100644
+--- a/external/openssl/ExternalPackage_openssl.mk
++++ b/external/openssl/ExternalPackage_openssl.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,openssl,openssl))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,openssl,openssl))
+ 
+-ifeq ($(COM),MSC)
++ifeq ($(COM)$(DISABLE_DYNLOADING),MSC)
+ $(eval $(call gb_ExternalPackage_add_files,openssl,$(LIBO_LIB_FOLDER),\
+     libcrypto-3.dll \
+     libssl-3.dll \
+diff --git a/external/openssl/ExternalProject_openssl.mk b/external/openssl/ExternalProject_openssl.mk
+index a31945fab..2753ffe31 100644
+--- a/external/openssl/ExternalProject_openssl.mk
++++ b/external/openssl/ExternalProject_openssl.mk
+@@ -69,6 +69,7 @@ $(call gb_ExternalProject_get_state_target,openssl,build):
+ 	$(call gb_Trace_StartRange,openssl,EXTERNAL)
+ 	$(call gb_ExternalProject_run,build,\
+ 		CONFIGURE_INSIST=1 $(PERL) Configure $(OPENSSL_PLATFORM) no-tests no-multilib \
++			$(if $(filter TRUE,$(DISABLE_DYNLOADING)),no-shared) \
+ 		&& $(if $(JOM),$(JOM) $(wordlist 1,2,$(PARALLELISM_OPTION)),nmake) -f makefile \
+ 			$(if $(call gb_Module__symbols_enabled,openssl),DEBUG_FLAGS_VALUE="$(gb_DEBUGINFO_FLAGS)") \
+ 	)
+diff --git a/include/sal/types.h b/include/sal/types.h
+index 8e6acb634..e12f30336 100644
+--- a/include/sal/types.h
++++ b/include/sal/types.h
+@@ -205,9 +205,15 @@ typedef void *                   sal_Handle;
+ #define SAL_MAX_ENUM 0x7fffffff
+ 
+ #if defined(_MSC_VER)
+-#   define SAL_DLLPUBLIC_EXPORT    __declspec(dllexport)
+-#   define SAL_JNI_EXPORT          __declspec(dllexport)
+-#   define SAL_DLLPUBLIC_IMPORT    __declspec(dllimport)
++#   if defined(DISABLE_DYNLOADING)
++#       define SAL_DLLPUBLIC_EXPORT
++#       define SAL_JNI_EXPORT
++#       define SAL_DLLPUBLIC_IMPORT
++#   else
++#       define SAL_DLLPUBLIC_EXPORT    __declspec(dllexport)
++#       define SAL_JNI_EXPORT          __declspec(dllexport)
++#       define SAL_DLLPUBLIC_IMPORT    __declspec(dllimport)
++#   endif
+ #   define SAL_DLLPRIVATE
+ #   define SAL_DLLPUBLIC_TEMPLATE
+ #   define SAL_DLLPUBLIC_RTTI
+diff --git a/solenv/gbuild/platform/com_MSC_class.mk b/solenv/gbuild/platform/com_MSC_class.mk
+index b56629fff..3f0f3a40e 100644
+--- a/solenv/gbuild/platform/com_MSC_class.mk
++++ b/solenv/gbuild/platform/com_MSC_class.mk
+@@ -242,6 +242,13 @@ endef
+ 
+ gb_MSC_SUBSYSTEM_VERSION=$(COMMA)$(if $(filter AARCH64,$(CPUNAME)),6.02,6.01)
+ 
++# In a static build (DISABLE_DYNLOADING) a Library is an archive like a StaticLibrary, and an
++# Executable links the archives of all the libraries it needs (see static.mk).
++gb_LinkTarget__is_archive = $(filter StaticLibrary $(if $(DISABLE_DYNLOADING),Library),$(TARGETTYPE))
++gb_LinkTarget__is_dll = $(if $(DISABLE_DYNLOADING),,$(filter Library,$(TARGETTYPE)))
++gb_LinkTarget__static_libs = $(if $(and $(DISABLE_DYNLOADING),$(filter Executable,$(TARGETTYPE))), \
++	$(foreach lib,$(sort $(filter-out $(gb_LinkTarget__syslib),$(LINKED_LIBS))),$(call gb_Library_get_target,$(lib))))
++
+ # the sort on the libraries is used to filter out duplicates to keep commandline
+ # length in check - otherwise the dupes easily hit the limit when linking mergedlib
+ define gb_LinkTarget__command
+@@ -260,14 +267,13 @@ $(call gb_Helper_abbreviate_dirs,\
+ 		$(foreach object,$(GENASMOBJECTS),$(call gb_GenAsmObject_get_target,$(object))) \
+ 		$(foreach object,$(GENNASMOBJECTS),$(call gb_GenNasmObject_get_target,$(object))) \
+ 		$(foreach extraobjectlist,$(EXTRAOBJECTLISTS),$(shell cat $(extraobjectlist))) \
+-		$(PCHOBJS) $(NATIVERES)) && \
++		$(PCHOBJS) $(if $(gb_LinkTarget__is_archive),,$(NATIVERES)) $(gb_LinkTarget__static_libs)) && \
+ 		$(if $(filter $(call gb_Library__get_workdir_linktargetname,merged),$(2)),$(call gb_LinkTarget_MergedResponseFile)) \
+ 	unset INCLUDE && \
+ 	$(gb_LINK) \
+-		$(if $(filter Library CppunitTest,$(TARGETTYPE)),$(gb_Library_TARGETTYPEFLAGS)) \
+-		$(if $(filter StaticLibrary,$(TARGETTYPE)),-LIB) \
++		$(if $(gb_LinkTarget__is_archive),-LIB,$(if $(filter Library CppunitTest,$(TARGETTYPE)),$(gb_Library_TARGETTYPEFLAGS))) \
+ 		$(if $(filter Executable,$(TARGETTYPE)),$(gb_Executable_TARGETTYPEFLAGS)) \
+-		$(if $(T_SYMBOLS),$(if $(filter Executable Library CppunitTest,$(TARGETTYPE)),$(call gb_Windows_PE_TARGETTYPEFLAGS_DEBUGINFO,$(DEFS))),) \
++		$(if $(T_SYMBOLS),$(if $(gb_LinkTarget__is_archive),,$(if $(filter Executable Library CppunitTest,$(TARGETTYPE)),$(call gb_Windows_PE_TARGETTYPEFLAGS_DEBUGINFO,$(DEFS))))) \
+ 		$(if $(filter YES,$(TARGETGUI)), -SUBSYSTEM:WINDOWS$(gb_MSC_SUBSYSTEM_VERSION), -SUBSYSTEM:CONSOLE$(gb_MSC_SUBSYSTEM_VERSION)) \
+ 		$(if $(filter YES,$(LIBRARY_X64)), -MACHINE:X64) \
+ 		$(if $(filter YES,$(PE_X86)), -MACHINE:X86) \
+@@ -282,21 +288,21 @@ $(call gb_Helper_abbreviate_dirs,\
+ 			-LIBPATH:$(UCRTSDKDIR)lib/$(UCRTVERSION)/ucrt/x86 \
+ 			$(if $(filter 80 81 10,$(WINDOWS_SDK_VERSION)),-LIBPATH:$(WINDOWS_SDK_HOME)/lib/$(WINDOWS_SDK_LIB_SUBDIR)/um/x86)) \
+ 		$(T_USE_LD) $(T_LDFLAGS) \
+-		$(if $(filter Library CppunitTest Executable,$(TARGETTYPE)),/NATVIS:$(SRCDIR)/solenv/vs/LibreOffice.natvis) \
++		$(if $(gb_LinkTarget__is_archive),,$(if $(filter Library CppunitTest Executable,$(TARGETTYPE)),/NATVIS:$(SRCDIR)/solenv/vs/LibreOffice.natvis)) \
+ 		@$${RESPONSEFILE} \
+-		$(foreach lib,$(sort $(LINKED_LIBS)),$(call gb_Library_get_ilibfilename,$(lib))) \
+-		$(foreach lib,$(sort $(LINKED_STATIC_LIBS)),$(call gb_StaticLibrary_get_filename,$(lib))) \
+-		$(if $(filter-out StaticLibrary,$(TARGETTYPE)),\
+-			$(sort $(T_LIBS)) user32.lib \
++		$(if $(DISABLE_DYNLOADING),,$(foreach lib,$(sort $(LINKED_LIBS)),$(call gb_Library_get_ilibfilename,$(lib)))) \
++		$(if $(and $(DISABLE_DYNLOADING),$(gb_LinkTarget__is_archive)),,$(foreach lib,$(sort $(LINKED_STATIC_LIBS)),$(call gb_StaticLibrary_get_filename,$(lib)))) \
++		$(if $(gb_LinkTarget__is_archive),,\
++			$(sort $(patsubst $(gb_LinkTarget__syslib),%,$(T_LIBS))) user32.lib \
+ 			-manifestfile:$(WORKDIR)/LinkTarget/$(2).manifest \
+ 			-pdb:$(call gb_LinkTarget__get_pdb_filename,$(WORKDIR)/LinkTarget/$(2))) \
+ 		$(if $(ILIBTARGET),-out:$(1) -implib:$(ILIBTARGET),-out:$(1)) \
+ 		| $(GBUILDDIR)/platform/filter-creatingLibrary.awk; RC=$${PIPESTATUS[0]}; rm $${RESPONSEFILE} \
+-	$(if $(filter Library,$(TARGETTYPE)),; if [ ! -f $(ILIBTARGET) ]; then rm -f $(1); exit 42; fi) \
+-	$(if $(filter Library,$(TARGETTYPE)),&& if [ -f $(WORKDIR)/LinkTarget/$(2).manifest ]; then mt.exe $(MTFLAGS) -nologo -manifest $(WORKDIR)/LinkTarget/$(2).manifest $(SRCDIR)/solenv/gbuild/platform/win_compatibility.manifest -outputresource:$(1)\;2 && touch -r $(1) $(WORKDIR)/LinkTarget/$(2).manifest $(ILIBTARGET); fi) \
++	$(if $(gb_LinkTarget__is_dll),; if [ ! -f $(ILIBTARGET) ]; then rm -f $(1); exit 42; fi) \
++	$(if $(gb_LinkTarget__is_dll),&& if [ -f $(WORKDIR)/LinkTarget/$(2).manifest ]; then mt.exe $(MTFLAGS) -nologo -manifest $(WORKDIR)/LinkTarget/$(2).manifest $(SRCDIR)/solenv/gbuild/platform/win_compatibility.manifest -outputresource:$(1)\;2 && touch -r $(1) $(WORKDIR)/LinkTarget/$(2).manifest $(ILIBTARGET); fi) \
+ 	$(if $(filter Executable,$(TARGETTYPE)),&& if [ -f $(WORKDIR)/LinkTarget/$(2).manifest ]; then mt.exe $(MTFLAGS) -nologo -manifest $(WORKDIR)/LinkTarget/$(2).manifest $(SRCDIR)/solenv/gbuild/platform/win_compatibility.manifest -outputresource:$(1)\;1 && touch -r $(1) $(WORKDIR)/LinkTarget/$(2).manifest; fi) \
+ 	$(if $(filter Executable,$(TARGETTYPE)),&& mt.exe $(MTFLAGS) -nologo -manifest $(SRCDIR)/solenv/gbuild/platform/DeclareDPIAware.manifest -updateresource:$(1)\;1 ) \
+-	$(if $(filter Library,$(TARGETTYPE)),&& \
++	$(if $(gb_LinkTarget__is_dll),&& \
+ 		echo $(notdir $(1)) > $(WORKDIR)/LinkTarget/$(2).exports.tmp && \
+ 		$(gb_DUMPBIN) \
+ 			-exports $(ILIBTARGET) \
+@@ -353,7 +359,13 @@ gb_Library_get_rpath :=
+ 
+ gb_Library_SYSPRE := i
+ gb_Library_PLAINEXT := .lib
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++# The build platform's libraries are DLLs; RepositoryFixes.mk names them after these static
++# ones, replacing gb_Library_PLAINEXT.
++gb_Library_PLAINEXT_FOR_BUILD := .dll
++else
+ gb_Library_PLAINEXT_FOR_BUILD := .lib
++endif
+ 
+ gb_Library_LAYER := \
+ 	$(foreach lib,$(gb_Library_OOOLIBS),$(lib):OOO) \
+@@ -370,7 +382,11 @@ gb_Library_LAYER := \
+ gb_Library_ILIBFILENAMES :=\
+ 	$(foreach lib,$(gb_Library_KNOWNLIBS),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_PLAINEXT)) \
+ 
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++gb_Library_DLLEXT := .lib
++else
+ gb_Library_DLLEXT := .dll
++endif
+ gb_Library_UDK_MAJORVER := 3
+ gb_Library_RTEXT := MSC$(gb_Library_DLLEXT)
+ gb_Library_OOOEXT := $(gb_Library_DLLPOSTFIX)$(gb_Library_DLLEXT)
+@@ -397,6 +413,20 @@ $(call gb_Library_get_linktarget_target,$(1)) : NATIVERES :=
+ 
+ endef
+ 
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++
++define gb_Library_Library_platform
++$(call gb_LinkTarget_get_target,$(2)) \
++$(call gb_LinkTarget_get_headers_target,$(2)) : PDBFILE = $(call gb_LinkTarget_get_pdbfile_in,$(2))
++
++$(call gb_LinkTarget_add_auxtargets,$(2),\
++	$(call gb_LinkTarget_get_pdbfile_in,$(2)) \
++)
++
++endef
++
++else
++
+ define gb_Library_Library_platform
+ $(call gb_LinkTarget_set_ilibtarget,$(2),$(3))
+ 
+@@ -415,6 +445,8 @@ $(call gb_LinkTarget_get_headers_target,$(2)) : PDBFILE = $(call gb_LinkTarget_g
+ 
+ endef
+ 
++endif # DISABLE_DYNLOADING
++
+ define gb_Library_add_default_nativeres
+ $(call gb_WinResTarget_WinResTarget_init,$(2))
+ $(call gb_WinResTarget_set_rcfile,$(2),include/default)
+@@ -489,6 +521,10 @@ endef
+ gb_Executable_EXT := .exe
+ gb_Executable_EXT_for_build := .exe
+ gb_Executable_TARGETTYPEFLAGS := $(gb_Windows_PE_TARGETTYPEFLAGS)
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++# drop what the program does not use from the static libraries
++gb_Executable_TARGETTYPEFLAGS := $(patsubst -opt:noref,-opt:ref -opt:icf,$(gb_Executable_TARGETTYPEFLAGS))
++endif
+ 
+ gb_Executable_get_rpath :=
+ 
+diff --git a/solenv/gbuild/platform/com_MSC_defs.mk b/solenv/gbuild/platform/com_MSC_defs.mk
+index 12bac9325..183591f27 100644
+--- a/solenv/gbuild/platform/com_MSC_defs.mk
++++ b/solenv/gbuild/platform/com_MSC_defs.mk
+@@ -328,10 +328,14 @@ endif
+ 
+ # Helper class
+ 
+-gb_Helper_set_ld_path := $(call gb_Helper_cyg_path,PATH="$(INSTDIR_FOR_BUILD)/$(LIBO_URE_LIB_FOLDER):$(INSTDIR_FOR_BUILD)/$(LIBO_BIN_FOLDER):$$PATH")
++# gb_Helper_cyg_path only converts paths below BUILDDIR, INSTDIR etc.; INSTDIR_FOR_BUILD need not
++# share their form (with WSL as helper, BUILDDIR is an 8.3 short name)
++gb_Helper_LD_PATH_FOR_BUILD := $(shell cygpath -u $(INSTDIR_FOR_BUILD)/$(LIBO_URE_LIB_FOLDER)):$(shell cygpath -u $(INSTDIR_FOR_BUILD)/$(LIBO_BIN_FOLDER))
++
++gb_Helper_set_ld_path := PATH="$(gb_Helper_LD_PATH_FOR_BUILD):$$PATH"
+ 
+ define gb_Helper_prepend_ld_path
+-PATH="$(call gb_Helper_cyg_path,$(INSTDIR_FOR_BUILD)/$(LIBO_URE_LIB_FOLDER):$(INSTDIR_FOR_BUILD)/$(LIBO_BIN_FOLDER):$(1):$$PATH")
++PATH="$(gb_Helper_LD_PATH_FOR_BUILD):$(call gb_Helper_cyg_path,$(1)):$$PATH"
+ endef
+ 
+ # $(1): one directory pathname to append to the ld path
+diff --git a/vcl/Library_vclplug_win.mk b/vcl/Library_vclplug_win.mk
+index 2ef6c5681..1cec8d30e 100644
+--- a/vcl/Library_vclplug_win.mk
++++ b/vcl/Library_vclplug_win.mk
+@@ -136,7 +136,8 @@ $(eval $(call gb_Library_add_nativeres,vclplug_win,vcl/salsrc))
+ 
+ # HACK: dependency on icon themes so running unit tests don't
+ # prevent delivering these by having open file handles on WNT
+-ifeq ($(gb_Side),host)
++# (a tree extracted by libreoffice-slim has no icon themes)
++ifneq ($(and $(filter host,$(gb_Side)),$(wildcard $(SRCDIR)/icon-themes)),)
+ $(eval $(call gb_Library_use_package,vclplug_win,postprocess_images))
+ endif
+ 
+diff --git a/vcl/win/app/salshl.cxx b/vcl/win/app/salshl.cxx
+index 5619ece1f..83ccb15ac 100644
+--- a/vcl/win/app/salshl.cxx
++++ b/vcl/win/app/salshl.cxx
+@@ -21,7 +21,12 @@
+ #include <sal/log.hxx>
+ #include <win/saldata.hxx>
+ 
++#if defined DISABLE_DYNLOADING
++// linked into the program, which carries VCL's resources (vcl/salsrc) and never calls DllMain
++SalShlData aSalShlData{ GetModuleHandleW(nullptr), 0, 0 };
++#else
+ SalShlData aSalShlData;
++#endif
+ 
+ extern "C" BOOL WINAPI DllMain(HINSTANCE hInst, DWORD nReason, LPVOID)
+ {

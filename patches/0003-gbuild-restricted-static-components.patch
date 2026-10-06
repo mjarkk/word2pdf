@@ -1,0 +1,48 @@
+diff --git a/solenv/gbuild/static.mk b/solenv/gbuild/static.mk
+index b6eb9b1fe..687ebd272 100644
+--- a/solenv/gbuild/static.mk
++++ b/solenv/gbuild/static.mk
+@@ -63,8 +63,13 @@
+ ifeq ($(gb_FULLDEPS),$(true))
+ ifeq (,$(gb_PARTIAL_BUILD))
+ 
++# A build can restrict the linked UNO components (see static/CustomTarget_components.mk);
++# then only the libraries providing them are linked into the components library.
++gb_static_COMPONENTFILES := $(if $(wildcard $(SRCDIR)/slim/component-files.list),$(file <$(SRCDIR)/slim/component-files.list))
++
+ $(foreach lib,$(gb_Library_KNOWNLIBS),$(if $(call gb_Library__get_component,$(lib)), \
+-    $(eval $(call gb_Library_use_libraries,components,$(lib)))))
++    $(if $(or $(if $(gb_static_COMPONENTFILES),,TRUE),$(filter $(call gb_Library__get_component,$(lib)),$(gb_static_COMPONENTFILES))), \
++        $(eval $(call gb_Library_use_libraries,components,$(lib))))))
+ 
+ define gb_LinkTarget__add_x_template
+ 
+diff --git a/static/CustomTarget_components.mk b/static/CustomTarget_components.mk
+index cc5a604d3..678da03f7 100644
+--- a/static/CustomTarget_components.mk
++++ b/static/CustomTarget_components.mk
+@@ -16,18 +16,22 @@ postprocess_WORKDIR := $(gb_CustomTarget_workdir)/postprocess
+ $(call gb_CustomTarget_get_target,static/components): \
+     $(static_WORKDIR)/component_maps.cxx \
+ 
++# A build can restrict the linked UNO implementations to a curated list; anything not
++# listed is not referenced and so not linked into static executables.
++static_CONSTRUCTORS := $(or $(wildcard $(SRCDIR)/slim/constructors.list),$(postprocess_WORKDIR)/services_constructors.list)
++
+ define gb_static_components_create_component_map
+ TEMPFILE=`$(gb_MKTEMP)` && \
+ $(call gb_Helper_abbreviate_dirs, \
+     $(call gb_ExternalExecutable_get_command,python) \
+-        $(SRCDIR)/solenv/bin/native-code.py -c $(postprocess_WORKDIR)/services_constructors.list \
++        $(SRCDIR)/solenv/bin/native-code.py -c $(static_CONSTRUCTORS) \
+ ) > $$TEMPFILE && \
+ $(call gb_Helper_replace_if_different_and_touch,$${TEMPFILE},$(1))
+ 
+ endef
+ 
+ $(static_WORKDIR)/component_maps.cxx: \
+-    $(postprocess_WORKDIR)/services_constructors.list \
++    $(static_CONSTRUCTORS) \
+     $(SRCDIR)/solenv/bin/native-code.py \
+     $(call gb_ExternalExecutable_get_dependencies,python) \
+     | $(static_WORKDIR)/.dir

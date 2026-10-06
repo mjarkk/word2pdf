@@ -1,0 +1,53 @@
+diff --git a/cppuhelper/source/paths.cxx b/cppuhelper/source/paths.cxx
+index 0a4ccf76e..4fd890287 100644
+--- a/cppuhelper/source/paths.cxx
++++ b/cppuhelper/source/paths.cxx
+@@ -26,6 +26,7 @@
+ #include <com/sun/star/uno/DeploymentException.hpp>
+ #include <osl/file.hxx>
+ #include <osl/module.hxx>
++#include <rtl/bootstrap.hxx>
+ #include <rtl/ustring.hxx>
+ #include <sal/types.h>
+ #include <o3tl/string_view.hxx>
+@@ -64,6 +65,11 @@ OUString cppu::getUnoIniUri() {
+ #elif defined(EMSCRIPTEN)
+     OUString uri("file:///instdir/program");
+ #else
++#if defined DISABLE_DYNLOADING
++    // A static executable has no library directory to find unorc in; it can name the file.
++    if (OUString ini; rtl::Bootstrap::get(u"URE_UNO_INI"_ustr, ini))
++        return ini;
++#endif
+     OUString uri(get_this_libpath());
+ #ifdef MACOSX
+     // We keep the URE dylibs directly in "Frameworks" (that is, LIBO_LIB_FOLDER) and unorc in
+diff --git a/cppuhelper/source/servicemanager.cxx b/cppuhelper/source/servicemanager.cxx
+index 092738630..e2c0c423a 100644
+--- a/cppuhelper/source/servicemanager.cxx
++++ b/cppuhelper/source/servicemanager.cxx
+@@ -9,6 +9,9 @@
+ 
+ #include <sal/config.h>
+ 
++#include <cstdio>
++#include <cstdlib>
++
+ #include <algorithm>
+ #include <cassert>
+ #include <iostream>
+@@ -796,6 +799,14 @@ void cppuhelper::ServiceManager::loadImplementation(
+             return;
+         }
+     }
++    // Lists the implementations a run needs, to maintain the set linked into static
++    // executables (see slim/components.txt).
++    if (static const char* pTrace = getenv("LO_SLIM_TRACE_IMPLEMENTATIONS"); pTrace) {
++        if (FILE* f = fopen(pTrace, "a")) {
++            fprintf(f, "%s\t%s\n", implementation->name.toUtf8().getStr(), implementation->constructorName.toUtf8().getStr());
++            fclose(f);
++        }
++    }
+     OUString uri;
+     try {
+         uri = cppu::bootstrap_expandUri(implementation->uri);

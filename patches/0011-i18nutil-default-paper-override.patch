@@ -1,0 +1,48 @@
+diff --git a/i18nutil/source/utility/paper.cxx b/i18nutil/source/utility/paper.cxx
+index ddad0b26d..5d097f2b4 100644
+--- a/i18nutil/source/utility/paper.cxx
++++ b/i18nutil/source/utility/paper.cxx
+@@ -34,6 +34,7 @@
+ #include <com/sun/star/lang/Locale.hpp>
+ 
+ #ifdef UNX
++#include <optional>
+ #include <stdio.h>
+ #include <locale.h>
+ #if defined(LC_PAPER) && defined(_GNU_SOURCE)
+@@ -223,11 +224,21 @@ tools::Long PaperInfo::sloppyFitPageDimension(tools::Long nDimension)
+     return nDimension;
+ }
+ 
++static std::optional<PaperInfo> g_oSystemDefaultPaper;
++
++void PaperInfo::setSystemDefaultPaper(const PaperInfo& rPaper)
++{
++    g_oSystemDefaultPaper = rPaper;
++}
++
+ PaperInfo PaperInfo::getSystemDefaultPaper()
+ {
+     if (comphelper::IsFuzzing())
+         return PaperInfo(PAPER_A4);
+ 
++    if (g_oSystemDefaultPaper)
++        return *g_oSystemDefaultPaper;
++
+     OUString aLocaleStr = officecfg::Setup::L10N::ooSetupSystemLocale::get();
+ 
+ #ifdef UNX
+diff --git a/include/i18nutil/paper.hxx b/include/i18nutil/paper.hxx
+index 84be74be1..6065b63ef 100644
+--- a/include/i18nutil/paper.hxx
++++ b/include/i18nutil/paper.hxx
+@@ -145,6 +145,9 @@ public:
+     void doSloppyFit(bool bAlsoTryRotated = false);
+ 
+     static PaperInfo getSystemDefaultPaper();
++    // Replaces what getSystemDefaultPaper finds (locale, paperconf, LC_PAPER), for programs
++    // whose output must not depend on the environment.
++    static void setSystemDefaultPaper(const PaperInfo& rPaper);
+     static PaperInfo getDefaultPaperForLocale(const css::lang::Locale& rLocale);
+ 
+     static Paper fromPSName(std::string_view rName);

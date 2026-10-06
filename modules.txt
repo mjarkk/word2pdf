@@ -1,0 +1,163 @@
+# What scripts/extract.sh copies from the LibreOffice source tree (repos/core) into src/.
+# One path per line, relative to the tree root; '#' starts a comment.
+#
+# The code modules are the ones defining the libraries linked into word2pdf, as computed by
+# gbuild's static linking (workdir/Dep/LinkTarget/Executable/word2pdf.d.{libraries,statics,
+# externals} of a build). Everything not listed (Calc, Impress, Base, the desktop application,
+# icon themes, translations, help, ...) is left out; gbuild skips missing modules in an
+# extracted tree (see patches/0004-gbuild-extracted-trees.patch).
+
+# build system and configuration
+.gitignore
+g
+.git-hooks
+autogen.sh
+configure.ac
+config.guess
+config.sub
+install-sh
+Makefile.in
+Makefile.fetch
+Makefile.gbuild
+download.lst
+Repository.mk
+RepositoryExternal.mk
+RepositoryFixes.mk
+RepositoryModule_build.mk
+RepositoryModule_host.mk
+config_host.mk.in
+config_host_lang.mk.in
+COPYING
+COPYING.LGPL
+COPYING.MPL
+bin
+config_host
+include
+m4
+solenv
+# the precompiled header shared by many libraries (MSVC builds use precompiled headers)
+pch
+
+# build tools (run on the build machine)
+codemaker
+idl
+l10ntools
+soltools
+
+# UNO API, runtime and configuration data (instsetoo_native: ini files that let build tools
+# like i18npool's saxparser run UNO)
+instsetoo_native
+offapi
+oovbaapi
+udkapi
+officecfg
+postprocess
+ure
+extras
+static
+
+# code linked into word2pdf
+avmedia
+basegfx
+basic
+bridges
+canvas
+chart2
+comphelper
+configmgr
+connectivity
+cppcanvas
+cppu
+cppuhelper
+docmodel
+drawinglayer
+editeng
+embeddedobj
+emfio
+filter
+framework
+i18nlangtag
+i18npool
+i18nutil
+lingucomponent
+linguistic
+oox
+package
+registry
+sal
+salhelper
+sax
+sfx2
+sot
+starmath
+stoc
+store
+svgio
+svl
+svtools
+svx
+sw
+toolkit
+tools
+ucb
+ucbhelper
+unoidl
+unotools
+unoxml
+uui
+vcl
+xmloff
+xmlreader
+xmlscript
+
+# bundled third-party libraries (built from the tarballs in download.lst)
+external/Makefile
+external/Module_external.mk
+external/README.md
+external/argon2
+external/boost
+external/cairo
+external/curl
+external/dragonbox
+# OpenGL loader; VCL with a GUI backend (Windows) links it
+external/epoxy
+external/expat
+external/fast_float
+external/fontconfig
+external/freetype
+external/frozen
+external/glm
+external/graphite
+external/harfbuzz
+external/hunspell
+external/hyphen
+external/icu
+external/lcms2
+external/libeot
+external/libjpeg-turbo
+external/liblangtag
+external/libpng
+external/libtiff
+external/libwebp
+external/libxml2
+external/libxslt
+external/md4c
+external/mdds
+external/meson
+external/openssl
+external/redland
+external/zlib
+external/zstd
+external/zxcvbn-c
+
+# included by the top-level Makefile (the clang plugins themselves are not used)
+compilerplugins/Makefile.mk
+
+# templates configure instantiates (their modules are not built)
+.vscode/vs-code-template.code-workspace.in
+sysui/desktop/macosx/Info.plist.in
+sysui/desktop/macosx/LaunchConstraint.plist.in
+sysui/desktop/macosx/hardened_runtime.xcent.in
+sysui/desktop/macosx/lo.xcent.in
+extensions/source/macosx/quicklookpreview/appex/Info.plist.in
+extensions/source/macosx/quicklookthumbnail/appex/Info.plist.in

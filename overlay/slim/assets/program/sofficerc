@@ -1,0 +1,3 @@
+[Bootstrap]
+URE_BOOTSTRAP=${ORIGIN}/fundamentalrc
+URE_UNO_INI=${ORIGIN}/unorc

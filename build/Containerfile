@@ -1,0 +1,19 @@
+# Build environment for libreoffice-slim on Linux.
+# The resulting binary links only against glibc, so build on an old-enough glibc
+# for wherever it should run (trixie = glibc 2.41).
+FROM docker.io/library/debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        autoconf automake bison build-essential ca-certificates ccache cmake \
+        curl file flex git gperf libarchive-zip-perl libtool make nasm ninja-build \
+        patch perl pkg-config python3 python3-setuptools unzip wget xsltproc xz-utils zip \
+        libfontconfig-dev libfreetype-dev python3-dev mold lld \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CCACHE_DIR=/ccache \
+    CCACHE_MAXSIZE=30G \
+    LC_ALL=C.UTF-8
+
+# a new named volume mounted at /build or /ccache starts as a copy of these (LO_SLIM_VOLUMES)
+RUN mkdir -p /build /ccache && chmod 1777 /build /ccache

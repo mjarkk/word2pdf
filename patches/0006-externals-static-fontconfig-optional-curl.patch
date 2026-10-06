@@ -1,0 +1,121 @@
+diff --git a/RepositoryExternal.mk b/RepositoryExternal.mk
+index 45ac4f26b..3159b33cc 100644
+--- a/RepositoryExternal.mk
++++ b/RepositoryExternal.mk
+@@ -1055,8 +1055,11 @@ $(call gb_LinkTarget_set_include,$(1),\
+ )
+ 
+ ifeq ($(COM),MSC)
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++$(call gb_LinkTarget_add_defs,$(1),-DLIBXSLT_STATIC)
++endif
+ $(call gb_LinkTarget_add_libs,$(1),\
+-	$(gb_UnpackedTarball_workdir)/libxslt/win32/bin.msvc/libxslt.lib \
++	$(gb_UnpackedTarball_workdir)/libxslt/win32/bin.msvc/libxslt$(if $(DISABLE_DYNLOADING),_a).lib \
+ )
+ else
+ $(call gb_LinkTarget_add_libs,$(1),\
+@@ -1074,8 +1077,11 @@ $(call gb_LinkTarget_set_include,$(1),\
+ )
+ 
+ ifeq ($(COM),MSC)
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++$(call gb_LinkTarget_add_defs,$(1),-DLIBEXSLT_STATIC)
++endif
+ $(call gb_LinkTarget_add_libs,$(1),\
+-	$(gb_UnpackedTarball_workdir)/libxslt/win32/bin.msvc/libexslt.lib \
++	$(gb_UnpackedTarball_workdir)/libxslt/win32/bin.msvc/libexslt$(if $(DISABLE_DYNLOADING),_a).lib \
+ )
+ else
+ $(call gb_LinkTarget_add_libs,$(1),\
+@@ -1380,7 +1386,7 @@ $(eval $(call gb_Helper_register_packages_for_install,ooo,\
+ endif
+ 
+ define gb_LinkTarget__use_fontconfig
+-ifeq ($(OS),LINUX)
++ifeq ($(OS)$(DISABLE_DYNLOADING),LINUX)
+ $(call gb_LinkTarget_use_package,$(1),fontconfig)
+ else
+ $(call gb_LinkTarget_use_external_project,$(1),fontconfig)
+@@ -1480,6 +1486,9 @@ $(call gb_LinkTarget_set_include,$(1),\
+ 	-I$(gb_UnpackedTarball_workdir)/icu/source/common \
+ 	$$(INCLUDE) \
+ )
++ifeq ($(OS)$(DISABLE_DYNLOADING),WNTTRUE)
++$(call gb_LinkTarget_add_defs,$(1),-DU_STATIC_IMPLEMENTATION)
++endif
+ 
+ endef
+ 
+@@ -1489,12 +1498,15 @@ $(call gb_ExternalProject_use_package,$(1),icu)
+ endef
+ 
+ # icudata and icui18n is called icudt and icuin when built with MSVC :-/
++# the static libraries of ICU's Windows build are named sicu*.lib
++gb_ICU_WNT_STATIC_PREFIX := $(if $(DISABLE_DYNLOADING),s)
++
+ define gb_LinkTarget__use_icudata
+ $(call gb_LinkTarget_use_package,$(1),icu_ure)
+ 
+ ifeq ($(OS),WNT)
+ $(call gb_LinkTarget_add_libs,$(1),\
+-	$(gb_UnpackedTarball_workdir)/icu/source/lib/icudt$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
++	$(gb_UnpackedTarball_workdir)/icu/source/lib/$(gb_ICU_WNT_STATIC_PREFIX)icudt$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
+ )
+ else
+ $(call gb_LinkTarget_add_libs,$(1),\
+@@ -1509,7 +1521,7 @@ $(call gb_LinkTarget_use_package,$(1),icu)
+ 
+ ifeq ($(OS),WNT)
+ $(call gb_LinkTarget_add_libs,$(1),\
+-	$(gb_UnpackedTarball_workdir)/icu/source/lib/icuin$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
++	$(gb_UnpackedTarball_workdir)/icu/source/lib/$(gb_ICU_WNT_STATIC_PREFIX)icuin$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
+ )
+ else
+ $(call gb_LinkTarget_add_libs,$(1),\
+@@ -1524,7 +1536,7 @@ $(call gb_LinkTarget_use_package,$(1),icu_ure)
+ 
+ ifeq ($(OS),WNT)
+ $(call gb_LinkTarget_add_libs,$(1),\
+-	$(gb_UnpackedTarball_workdir)/icu/source/lib/icuuc$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
++	$(gb_UnpackedTarball_workdir)/icu/source/lib/$(gb_ICU_WNT_STATIC_PREFIX)icuuc$(if $(MSVC_USE_DEBUG_RUNTIME),d).lib \
+ )
+ else
+ $(call gb_LinkTarget_add_libs,$(1),\
+@@ -2876,6 +2888,14 @@ $(eval $(call gb_Helper_register_packages_for_install,ooo,\
+ 	curl \
+ )))
+ 
++ifeq ($(ENABLE_CURL),)
++
++# --disable-curl: some libraries declare curl although they only use it in parts that are not
++# built then (svl's NSS signing, uui's Windows OAuth)
++gb_LinkTarget__use_curl :=
++
++else
++
+ define gb_LinkTarget__use_curl
+ $(call gb_LinkTarget_use_package,$(1),curl)
+ $(call gb_LinkTarget_set_include,$(1),\
+@@ -2895,6 +2915,8 @@ endif
+ 
+ endef
+ 
++endif # ENABLE_CURL
++
+ endif # SYSTEM_CURL
+ 
+ ifeq ($(ENABLE_VALGRIND),TRUE)
+diff --git a/external/fontconfig/ExternalProject_fontconfig.mk b/external/fontconfig/ExternalProject_fontconfig.mk
+index 0f542e684..4c3848783 100644
+--- a/external/fontconfig/ExternalProject_fontconfig.mk
++++ b/external/fontconfig/ExternalProject_fontconfig.mk
+@@ -52,7 +52,7 @@ $(call gb_ExternalProject_get_state_target,fontconfig,build) :
+ 			    --enable-libxml2 \
+ 			    ac_cv_func_fstatfs=no ac_cv_func_fstatvfs=no ac_cv_va_copy=no \
+ 			) \
+-			$(if $(filter FUZZERS,$(BUILD_TYPE)), \
++			$(if $(or $(filter FUZZERS,$(BUILD_TYPE)),$(DISABLE_DYNLOADING)), \
+ 				--disable-shared, \
+ 				$(if $(filter LINUX,$(OS)), \
+ 					--disable-static \

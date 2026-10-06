@@ -1,0 +1,23 @@
+diff --git a/idl/source/objects/types.cxx b/idl/source/objects/types.cxx
+index 8f6c949af..41a3e82a0 100644
+--- a/idl/source/objects/types.cxx
++++ b/idl/source/objects/types.cxx
+@@ -249,10 +249,16 @@ void SvMetaType::WriteSfxItem(
+ 
+     // write the implementation part
+     rOutStm.WriteOString( "#ifdef SFX_TYPEMAP" ) << endl;
+-    rOutStm.WriteOString( "#if !defined(_WIN32) && (defined(DISABLE_DYNLOADING) && (defined(ANDROID) || defined(IOS) || defined(EMSCRIPTEN) || defined(LINUX)))" ) << endl;
++    // In static builds several libraries define the same type map entries.
++    rOutStm.WriteOString( "#if defined(DISABLE_DYNLOADING)" ) << endl;
++    rOutStm.WriteOString( "#if defined(_WIN32)" ) << endl;
++    rOutStm.WriteOString( "__declspec(selectany)" ) << endl;
++    rOutStm.WriteOString( "#else" ) << endl;
+     rOutStm.WriteOString( "__attribute__((__weak__))" ) << endl;
+     rOutStm.WriteOString( "#endif" ) << endl;
+-    rOutStm.WriteOString( "constinit const " ).WriteOString( aTypeName ).WriteOString( aVarName )
++    rOutStm.WriteOString( "#endif" ) << endl;
++    // GCC only accepts the weak attribute on a definition that is itself declared extern
++    rOutStm.WriteOString( "extern constinit const " ).WriteOString( aTypeName ).WriteOString( aVarName )
+            .WriteOString( " = " ) << endl;
+     rOutStm.WriteChar( '{' ) << endl;
+ 

@@ -1,0 +1,63 @@
+diff --git a/external/icu/ExternalProject_icu.mk b/external/icu/ExternalProject_icu.mk
+index d7b45f4c0..c934ba65c 100644
+--- a/external/icu/ExternalProject_icu.mk
++++ b/external/icu/ExternalProject_icu.mk
+@@ -17,11 +17,32 @@ icu_CPPFLAGS:="-DHAVE_GCC_ATOMICS=$(if $(filter TRUE,$(GCC_HAVE_BUILTIN_ATOMIC))
+ 
+ $(call gb_ExternalProject_get_state_target,icu,build) : $(gb_UnpackedTarball_workdir)/icu/icu-uc-uninstalled.pc
+ 
++# A build can drop ICU data it does not need (see slim/icu-data-remove.txt), using the icupkg
++# of the build platform's ICU (whose -r only takes a list from a file named *.txt). A rerun
++# finds that data already removed.
++icu_DATA_REMOVE := $(if $(CROSS_COMPILING),$(wildcard $(SRCDIR)/slim/icu-data-remove.txt))
++ifeq ($(OS),WNT)
++icu_PKG := PATH="$(shell cygpath -u $(WORKDIR_FOR_BUILD)/UnpackedTarball/icu/source/lib):$$PATH" \
++	$(WORKDIR_FOR_BUILD)/UnpackedTarball/icu/source/bin/icupkg
++else
++icu_PKG := $(gb_Helper_LIBRARY_PATH_VAR)=$(WORKDIR_FOR_BUILD)/UnpackedTarball/icu/source/lib \
++	$(WORKDIR_FOR_BUILD)/UnpackedTarball/icu/source/bin/icupkg
++endif
++icu_REMOVE_DATA := $(if $(icu_DATA_REMOVE), \
++	sed '/^\#/d' $(icu_DATA_REMOVE) > $(gb_UnpackedTarball_workdir)/icu/data-remove.patterns \
++	&& $(icu_PKG) -l data/in/icudt$(ICU_MAJOR)l.dat \
++		| { grep -E -f $(gb_UnpackedTarball_workdir)/icu/data-remove.patterns || true; } \
++		> $(gb_UnpackedTarball_workdir)/icu/data-remove.txt \
++	&& $(icu_PKG) -r $(gb_UnpackedTarball_workdir)/icu/data-remove.txt data/in/icudt$(ICU_MAJOR)l.dat && )
++
++$(call gb_ExternalProject_get_state_target,icu,build) : $(icu_DATA_REMOVE)
++
+ ifeq ($(OS),WNT)
+ 
+ $(call gb_ExternalProject_get_state_target,icu,build) :
+ 	$(call gb_Trace_StartRange,icu,EXTERNAL)
+ 	$(call gb_ExternalProject_run,build,\
++		$(icu_REMOVE_DATA) \
+ 		$(WSL) autoconf -f \
+ 		&& export CC="$(filter-out -fsanitize%,$(CC))" CXX="$(filter-out -fsanitize%,$(CXX))" \
+ 			LIB="$(ILIB)" PYTHONWARNINGS="default" \
+@@ -30,6 +51,8 @@ $(call gb_ExternalProject_get_state_target,icu,build) :
+ 			INSTALL=`cygpath -m /usr/bin/install` $(if $(MSVC_USE_DEBUG_RUNTIME),LDFLAGS="-DEBUG") \
+ 			$(gb_RUN_CONFIGURE) ./configure \
+ 				$(if $(MSVC_USE_DEBUG_RUNTIME),--enable-debug --disable-release) \
++				$(if $(filter TRUE,$(DISABLE_DYNLOADING)),\
++					--with-data-packaging=static --enable-static --disable-shared --disable-dyload) \
+ 				$(gb_CONFIGURE_PLATFORMS) \
+ 				$(if $(CROSS_COMPILING), \
+ 					--with-cross-build=$(WORKDIR_FOR_BUILD)/UnpackedTarball/icu/source \
+@@ -69,6 +92,7 @@ icu_LDFLAGS:=" \
+ $(call gb_ExternalProject_get_state_target,icu,build) :
+ 	$(call gb_Trace_StartRange,icu,EXTERNAL)
+ 	$(call gb_ExternalProject_run,build,\
++		$(icu_REMOVE_DATA) \
+ 		autoconf -f && \
+ 		CPPFLAGS=$(icu_CPPFLAGS) CFLAGS=$(icu_CFLAGS) \
+ 		CXXFLAGS=$(icu_CXXFLAGS) LDFLAGS=$(icu_LDFLAGS) \
+@@ -87,7 +111,7 @@ $(call gb_ExternalProject_get_state_target,icu,build) :
+ 				--disable-tools --disable-extras) \
+ 			AR="$(AR)" RANLIB="$(RANLIB)" \
+ 		&& $(MAKE) $(if $(CROSS_COMPILING),DATASUBDIR=data) $(if $(verbose),VERBOSE=1) \
+-		$(if $(filter MACOSX,$(OS)), \
++		$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)), \
+ 			&& $(PERL) $(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl \
+ 				URELIB \
+ 				$(EXTERNAL_WORKDIR)/source/lib/libicuuc$(gb_Library_DLLEXT).$(icu_VERSION) \

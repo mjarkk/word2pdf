@@ -1,0 +1,15 @@
+diff --git a/solenv/gbuild/platform/com_GCC_defs.mk b/solenv/gbuild/platform/com_GCC_defs.mk
+index 31900e8b9..3f1221f2d 100644
+--- a/solenv/gbuild/platform/com_GCC_defs.mk
++++ b/solenv/gbuild/platform/com_GCC_defs.mk
+@@ -38,7 +38,9 @@ endif
+ gb_COMPILER_SETUP :=
+ 
+ ifeq ($(strip $(gb_COMPILEROPTFLAGS)),)
+-gb_COMPILEROPTFLAGS := -O2
++# libreoffice-slim optimizes for size: -21% executable size and -10% memory per conversion,
++# for ~20% more time
++gb_COMPILEROPTFLAGS := $(if $(wildcard $(SRCDIR)/slim/Module_slim.mk),-Os,-O2)
+ endif
+ 
+ gb_COMPILEROPTFLAGS += $(if $(ENABLE_HARDENING_FLAGS),$(HARDENING_OPT_CFLAGS))

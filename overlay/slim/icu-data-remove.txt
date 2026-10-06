@@ -1,0 +1,13 @@
+# ICU data word2pdf does not need (patterns for grep -E, matched against `icupkg -l`); the
+# bundled ICU is built without them (external/icu/ExternalProject_icu.mk).
+#
+# Display names of languages, regions, currencies, time zones and units: LibreOffice has its own
+# locale data and only uses ICU's display names in UI code.
+^lang/
+^region/
+^curr/
+^zone/
+^unit/
+# Charset converter tables: LibreOffice converts text encodings itself and the bundled libxml2
+# is built without ICU.
+\.cnv$

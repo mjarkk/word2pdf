@@ -1,0 +1,72 @@
+# UNO implementations linked into word2pdf; slim/update_constructors.py expands this into
+# slim/constructors.list. Anything not listed is not referenced, so its code is not linked,
+# and its services.rdb entry is dropped (asking for it behaves like an uninstalled service).
+#
+#   COMPONENT                 all implementations of that .component file
+#   COMPONENT -REGEX          ... except constructors matching REGEX
+#   COMPONENT CONSTRUCTOR...  only the listed constructors
+#
+# Started from tracing which implementations conversions of the test corpus instantiate
+# (LO_SLIM_TRACE_IMPLEMENTATIONS), widened to whole components where a document could need more
+# of them than the corpus did (all chart types, all formula/ODF import and export, ...).
+
+# Writer, its import filters and type detection
+sw/util/sw.component
+sw/util/swd.component
+sw/util/sw_writerfilter.component
+oox/util/oox.component
+filter/source/config/cache/filterconfig1.component
+filter/source/storagefilterdetect/storagefd.component
+
+# embedded charts and formulas
+chart2/source/chart2.component -Dialog|Wizard|Panel|Toolbox|ToolbarController|ColorPalette|FrameLoader|DocumentWrapper
+starmath/util/sm.component -Panel
+xmloff/util/xo.component
+embeddedobj/util/embobj.component
+embeddedobj/source/msole/emboleobj.component
+
+# drawing, images, rendering
+svx/util/svxcore.component -Control
+drawinglayer/drawinglayer.component
+emfio/emfio.component
+svgio/svgio.component
+vcl/vcl.common.component
+
+# PDF export
+filter/source/pdf/pdffilter.component filter_PDFFilter_get_implementation
+
+# locale data, text breaking, numbering
+i18npool/util/i18npool.component
+
+# configuration, storage, content access, XML
+configmgr/source/configmgr.component
+ucb/source/core/ucb1.component
+ucb/source/ucp/file/ucpfile1.component
+ucb/source/ucp/tdoc/ucptdoc1.component
+package/util/package2.component
+package/source/xstor/xstor.component
+svl/source/fsstor/fsstorage.component
+sot/util/sot.component
+sax/source/expatwrap/expwrap.component
+unoxml/source/service/unoxml.component
+# RDF metadata repository: Writer's PDF export reads paragraph metadata from it, exporting
+# fails without it
+unoxml/source/rdf/unordf.component
+comphelper/util/comphelp.component
+unotools/util/utl.component
+stoc/util/stocservices.component
+stoc/source/proxy_factory/proxyfac.component
+
+# the hidden frame/view a document is loaded into
+framework/util/fwk.component com_sun_star_comp_framework_Desktop_get_implementation com_sun_star_comp_framework_Frame_get_implementation com_sun_star_comp_framework_JobExecutor_get_implementation com_sun_star_comp_framework_LayoutManager_get_implementation com_sun_star_comp_framework_ModuleManager_get_implementation com_sun_star_comp_framework_ModuleUIConfigurationManagerSupplier_get_implementation com_sun_star_comp_framework_ModuleUIConfigurationManager_get_implementation com_sun_star_comp_framework_PathSettings_get_implementation com_sun_star_comp_framework_PathSubstitution_get_implementation com_sun_star_comp_framework_StatusIndicatorFactory_get_implementation com_sun_star_comp_framework_ToolBarFactory_get_implementation com_sun_star_comp_framework_UIConfigurationManager_get_implementation com_sun_star_comp_framework_UIElementFactoryManager_get_implementation com_sun_star_comp_framework_URLTransformer_get_implementation com_sun_star_comp_framework_WindowStateConfiguration_get_implementation org_apache_openoffice_comp_framework_ContextChangeEventMultiplexer_get_implementation
+sfx2/util/sfx.component SfxDocumentMetaData_get_implementation CompatWriterDocPropsImpl_get_implementation com_sun_star_comp_office_FrameLoader_get_implementation com_sun_star_comp_sfx2_GlobalEventBroadcaster_get_implementation com_sun_star_comp_embed_PackageStructureCreator_get_implementation com_sun_star_comp_document_OwnSubFilter_get_implementation
+toolkit/util/tk.component stardiv_Toolkit_VCLXToolkit_get_implementation
+
+# linguistic service manager and the hyphenator (dictionaries are read from the system's
+# /usr/share/hyphen, like fonts); no spell checker, thesaurus or (online) grammar checker
+linguistic/source/lng.component linguistic_DicList_get_implementation linguistic_LinguProps_get_implementation linguistic_LngSvcMgr_get_implementation
+lingucomponent/source/hyphenator/hyphen/hyphen.component
+
+# SfxMedium always creates the default interaction handler (requests are answered by
+# word2pdf's own handler, so its dialogs are never shown)
+uui/util/uui.component com_sun_star_comp_uui_UUIInteractionHandler_get_implementation

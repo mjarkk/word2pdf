@@ -1,0 +1,1204 @@
+diff --git a/include/osl/detail/embeddedfs.h b/include/osl/detail/embeddedfs.h
+new file mode 100644
+index 000000000..a4e7d2244
+--- /dev/null
++++ b/include/osl/detail/embeddedfs.h
+@@ -0,0 +1,49 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#ifndef INCLUDED_OSL_DETAIL_EMBEDDEDFS_H
++#define INCLUDED_OSL_DETAIL_EMBEDDEDFS_H
++
++#include <sal/config.h>
++
++#include <stddef.h>
++
++#include <sal/saldllapi.h>
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/** A file of a read-only file tree that is compiled into the executable. */
++typedef struct
++{
++    /** Path relative to the tree root, '/' separated, without a leading '/'. */
++    const char* path;
++    const unsigned char* data;
++    size_t size;
++} lo_embedded_file;
++
++/** Serve a read-only file tree from memory.
++
++    After this call, the osl file functions resolve every system path below
++    pRoot (an absolute system path like "/lo") from aFiles instead of the real
++    file system.  The table and its data must stay valid for the lifetime of
++    the process.  Must be called once, before any other osl file function and
++    before any other thread is started.
++*/
++SAL_DLLPUBLIC void lo_embeddedfs_register(const char* pRoot, const lo_embedded_file* aFiles,
++                                          size_t nCount);
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sal/Library_sal.mk b/sal/Library_sal.mk
+index dae08b235..b67e375b2 100644
+--- a/sal/Library_sal.mk
++++ b/sal/Library_sal.mk
+@@ -157,6 +157,7 @@ ifneq ($(OS),WNT)
+ $(eval $(call gb_Library_add_exception_objects,sal,\
+ 	sal/osl/unx/backtraceapi \
+ 	sal/osl/unx/conditn \
++	sal/osl/unx/embeddedfs \
+ 	sal/osl/unx/file \
+ 	sal/osl/unx/file_error_transl \
+ 	sal/osl/unx/file_misc \
+@@ -223,6 +224,7 @@ $(eval $(call gb_Library_add_exception_objects,sal,\
+ 	sal/osl/w32/backtrace \
+ 	sal/osl/w32/conditn \
+ 	sal/osl/w32/dllentry \
++	sal/osl/w32/embeddedfs \
+ 	sal/osl/w32/file \
+ 	sal/osl/w32/file_dirvol \
+ 	sal/osl/w32/file_error \
+diff --git a/sal/osl/unx/embeddedfs.cxx b/sal/osl/unx/embeddedfs.cxx
+new file mode 100644
+index 000000000..07b455000
+--- /dev/null
++++ b/sal/osl/unx/embeddedfs.cxx
+@@ -0,0 +1,209 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <sal/config.h>
++
++#include <cerrno>
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <map>
++#include <string>
++#include <string_view>
++#include <vector>
++
++#include "embeddedfs.hxx"
++
++namespace
++{
++struct Child
++{
++    std::string name;
++    unsigned char type;
++};
++
++// Written once by lo_embeddedfs_register before any other thread exists, read-only afterwards.
++std::string g_aRoot;
++std::map<std::string, const lo_embedded_file*, std::less<>> g_aFiles;
++std::map<std::string, std::vector<Child>, std::less<>> g_aDirs;
++
++void addChild(const std::string& rDir, const std::string& rName, unsigned char nType)
++{
++    auto& rChildren = g_aDirs[rDir];
++    for (const auto& rChild : rChildren)
++        if (rChild.name == rName)
++            return;
++    rChildren.push_back({ rName, nType });
++}
++
++// Lists which embedded files a run looks for, to maintain the set of embedded files.
++void trace(const char* pWhat, const std::string& rRel)
++{
++    static const char* pTrace = getenv("LO_SLIM_TRACE_FILES");
++    if (!pTrace)
++        return;
++    if (FILE* f = fopen(pTrace, "a"))
++    {
++        fprintf(f, "%s\t%s\n", pWhat, rRel.c_str());
++        fclose(f);
++    }
++}
++
++// Maps an absolute system path to a normalized path relative to the root ("" is the root).
++bool relativePath(const char* pPath, std::string& rRel)
++{
++    if (g_aRoot.empty() || !pPath)
++        return false;
++    std::string_view aPath(pPath);
++    if (!aPath.starts_with(g_aRoot))
++        return false;
++    aPath.remove_prefix(g_aRoot.size());
++    if (!aPath.empty() && aPath.front() != '/')
++        return false;
++
++    rRel.clear();
++    size_t i = 0;
++    while (i < aPath.size())
++    {
++        while (i < aPath.size() && aPath[i] == '/')
++            ++i;
++        size_t nEnd = aPath.find('/', i);
++        if (nEnd == std::string_view::npos)
++            nEnd = aPath.size();
++        std::string_view aSegment = aPath.substr(i, nEnd - i);
++        i = nEnd;
++        if (aSegment.empty() || aSegment == ".")
++            continue;
++        if (aSegment == "..")
++        {
++            size_t nSlash = rRel.rfind('/');
++            rRel.erase(nSlash == std::string::npos ? 0 : nSlash);
++            continue;
++        }
++        if (!rRel.empty())
++            rRel += '/';
++        rRel += aSegment;
++    }
++    return true;
++}
++}
++
++namespace osl::embeddedfs
++{
++struct Dir
++{
++    const std::vector<Child>* pChildren;
++    size_t nNext;
++    struct dirent aEntry;
++};
++
++const char* root() { return g_aRoot.c_str(); }
++
++bool contains(const char* pPath)
++{
++    std::string aRel;
++    return relativePath(pPath, aRel);
++}
++
++const lo_embedded_file* findFile(const char* pPath)
++{
++    std::string aRel;
++    if (!relativePath(pPath, aRel))
++        return nullptr;
++    auto it = g_aFiles.find(aRel);
++    trace(it == g_aFiles.end() ? "miss" : "open", aRel);
++    return it == g_aFiles.end() ? nullptr : it->second;
++}
++
++int stat(const char* pPath, struct stat* pBuf)
++{
++    std::string aRel;
++    if (!relativePath(pPath, aRel))
++    {
++        errno = ENOENT;
++        return -1;
++    }
++    std::memset(pBuf, 0, sizeof(*pBuf));
++    pBuf->st_nlink = 1;
++    if (auto it = g_aFiles.find(aRel); it != g_aFiles.end())
++    {
++        pBuf->st_mode = S_IFREG | 0444;
++        pBuf->st_size = it->second->size;
++        pBuf->st_ino = std::distance(g_aFiles.begin(), it) + 1;
++        return 0;
++    }
++    if (g_aDirs.find(aRel) != g_aDirs.end())
++    {
++        pBuf->st_mode = S_IFDIR | 0555;
++        return 0;
++    }
++    trace("stat-miss", aRel);
++    errno = ENOENT;
++    return -1;
++}
++
++Dir* openDir(const char* pPath)
++{
++    std::string aRel;
++    if (!relativePath(pPath, aRel))
++    {
++        errno = ENOENT;
++        return nullptr;
++    }
++    auto it = g_aDirs.find(aRel);
++    trace(it == g_aDirs.end() ? "dir-miss" : "dir", aRel);
++    if (it == g_aDirs.end())
++    {
++        errno = g_aFiles.contains(aRel) ? ENOTDIR : ENOENT;
++        return nullptr;
++    }
++    return new Dir{ &it->second, 0, {} };
++}
++
++struct dirent* readDir(Dir* pDir)
++{
++    if (pDir->nNext >= pDir->pChildren->size())
++        return nullptr;
++    const Child& rChild = (*pDir->pChildren)[pDir->nNext++];
++    std::memset(&pDir->aEntry, 0, sizeof(pDir->aEntry));
++    std::strncpy(pDir->aEntry.d_name, rChild.name.c_str(), sizeof(pDir->aEntry.d_name) - 1);
++#ifdef _DIRENT_HAVE_D_TYPE
++    pDir->aEntry.d_type = rChild.type;
++#endif
++    return &pDir->aEntry;
++}
++
++void closeDir(Dir* pDir) { delete pDir; }
++}
++
++void lo_embeddedfs_register(const char* pRoot, const lo_embedded_file* aFiles, size_t nCount)
++{
++    g_aRoot = pRoot;
++    while (g_aRoot.size() > 1 && g_aRoot.back() == '/')
++        g_aRoot.pop_back();
++    g_aDirs[std::string()];
++    for (size_t i = 0; i < nCount; ++i)
++    {
++        std::string aPath(aFiles[i].path);
++        g_aFiles[aPath] = &aFiles[i];
++        unsigned char nType = DT_REG;
++        for (;;)
++        {
++            size_t nSlash = aPath.rfind('/');
++            std::string aDir = nSlash == std::string::npos ? std::string() : aPath.substr(0, nSlash);
++            addChild(aDir, aPath.substr(nSlash == std::string::npos ? 0 : nSlash + 1), nType);
++            if (aDir.empty())
++                break;
++            aPath = aDir;
++            nType = DT_DIR;
++        }
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sal/osl/unx/embeddedfs.hxx b/sal/osl/unx/embeddedfs.hxx
+new file mode 100644
+index 000000000..453799147
+--- /dev/null
++++ b/sal/osl/unx/embeddedfs.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <sal/config.h>
++
++#include <dirent.h>
++#include <sys/stat.h>
++
++#include <osl/detail/embeddedfs.h>
++
++namespace osl::embeddedfs
++{
++struct Dir;
++
++/// The registered root ("/lo") or an empty string when no tree is registered.
++const char* root();
++
++/// Whether the absolute system path lies inside the registered embedded tree.
++bool contains(const char* pPath);
++
++/// The embedded regular file at pPath, or nullptr.
++const lo_embedded_file* findFile(const char* pPath);
++
++/// stat(2) replacement for paths inside the tree; sets errno on failure.
++int stat(const char* pPath, struct stat* pBuf);
++
++/// opendir/readdir/closedir replacements; readdir never returns "." or "..".
++Dir* openDir(const char* pPath);
++struct dirent* readDir(Dir* pDir);
++void closeDir(Dir* pDir);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sal/osl/unx/file.cxx b/sal/osl/unx/file.cxx
+index eaad16612..fffcfeeab 100644
+--- a/sal/osl/unx/file.cxx
++++ b/sal/osl/unx/file.cxx
+@@ -68,6 +68,8 @@
+ 
+ #include <vector>
+ 
++#include "embeddedfs.hxx"
++
+ #ifdef LINUX
+ #include <sys/vfs.h>
+ // As documented by the kernel
+@@ -1060,6 +1062,23 @@ oslFileError openFilePath(const OString& filePath, oslFileHandle* pHandle,
+ {
+     oslFileError eRet;
+ 
++    if (osl::embeddedfs::contains(filePath.getStr()))
++    {
++        // Files compiled into the executable are read-only; like the Android /assets case
++        // below, a write-open silently succeeds read-only and later writes fail.
++        const lo_embedded_file* pFile = osl::embeddedfs::findFile(filePath.getStr());
++        if (!pFile)
++            return (uFlags & osl_File_OpenFlag_Create) ? osl_File_E_ROFS : osl_File_E_NOENT;
++        FileHandle_Impl* pImpl = new FileHandle_Impl(-1, FileHandle_Impl::KIND_MEM, filePath);
++        pImpl->m_size = pFile->size;
++        pImpl->m_bufptr = 0;
++        pImpl->m_buflen = pFile->size;
++        pImpl->m_bufsiz = pFile->size;
++        pImpl->m_buffer = const_cast<sal_uInt8*>(pFile->data);
++        *pHandle = static_cast<oslFileHandle>(pImpl);
++        return osl_File_E_None;
++    }
++
+ #ifdef ANDROID
+     /* Opening a file from /assets read-only means
+      * we should mmap it from the .apk file
+diff --git a/sal/osl/unx/file_misc.cxx b/sal/osl/unx/file_misc.cxx
+index 500a26a04..d55a1d33c 100644
+--- a/sal/osl/unx/file_misc.cxx
++++ b/sal/osl/unx/file_misc.cxx
+@@ -45,6 +45,8 @@
+ #include <algorithm>
+ #include <new>
+ 
++#include "embeddedfs.hxx"
++
+ #ifdef ANDROID
+ #include <osl/detail/android-bootstrap.h>
+ #endif
+@@ -63,6 +65,7 @@ struct DirectoryImpl
+ {
+     OString strPath;           /* holds native directory path */
+     DIR*         pDirStruct;
++    osl::embeddedfs::Dir* pEmbeddedDir = nullptr;
+ #ifdef ANDROID
+     enum Kind
+     {
+@@ -158,6 +161,19 @@ oslFileError SAL_CALL osl_openDirectory(rtl_uString* ustrDirectoryURL, oslDirect
+     }
+ #endif /* MACOSX */
+ 
++    if (osl::embeddedfs::contains(path.getStr()))
++    {
++        osl::embeddedfs::Dir* pdir = osl::embeddedfs::openDir(path.getStr());
++        if (!pdir)
++            return oslTranslateFileError(errno);
++        DirectoryImpl* pDirImpl = new DirectoryImpl;
++        pDirImpl->pDirStruct = nullptr;
++        pDirImpl->pEmbeddedDir = pdir;
++        pDirImpl->strPath = path;
++        *pDirectory = static_cast<oslDirectory>(pDirImpl);
++        return osl_File_E_None;
++    }
++
+ #ifdef ANDROID
+     if( strncmp( path.getStr(), "/assets/", sizeof( "/assets/" ) - 1) == 0 )
+     {
+@@ -230,6 +246,13 @@ oslFileError SAL_CALL osl_closeDirectory(oslDirectory pDirectory)
+     if (!pDirImpl)
+         return osl_File_E_INVAL;
+ 
++    if (pDirImpl->pEmbeddedDir)
++    {
++        osl::embeddedfs::closeDir(pDirImpl->pEmbeddedDir);
++        delete pDirImpl;
++        return osl_File_E_None;
++    }
++
+ #ifdef ANDROID
+     if (pDirImpl->eKind == DirectoryImpl::KIND_ASSETS)
+     {
+@@ -288,6 +311,11 @@ oslFileError SAL_CALL osl_getNextDirectoryItem(oslDirectory pDirectory,
+     if ((pDirectory == nullptr) || (pItem == nullptr))
+         return osl_File_E_INVAL;
+ 
++    if (pDirImpl->pEmbeddedDir)
++    {
++        pEntry = osl::embeddedfs::readDir(pDirImpl->pEmbeddedDir);
++    }
++    else
+ #ifdef ANDROID
+     if(pDirImpl->eKind == DirectoryImpl::KIND_ASSETS)
+     {
+diff --git a/sal/osl/unx/uunxapi.cxx b/sal/osl/unx/uunxapi.cxx
+index 6af6fbb61..0a1fb7e13 100644
+--- a/sal/osl/unx/uunxapi.cxx
++++ b/sal/osl/unx/uunxapi.cxx
+@@ -36,6 +36,8 @@
+ #include <fcntl.h>
+ #include <utime.h>
+ 
++#include "embeddedfs.hxx"
++
+ #ifdef ANDROID
+ #include <osl/detail/android-bootstrap.h>
+ #endif
+@@ -171,6 +173,18 @@ static OString macxp_resolveAliasAndConvert(OString const & p)
+ int osl::access(const OString& pstrPath, int mode)
+ {
+     OString fn = pstrPath;
++    if (osl::embeddedfs::contains(fn.getStr()))
++    {
++        struct stat aStat;
++        if (osl::embeddedfs::stat(fn.getStr(), &aStat) == -1)
++            return -1;
++        if (mode & W_OK)
++        {
++            errno = EROFS;
++            return -1;
++        }
++        return 0;
++    }
+ #ifdef ANDROID
+     if (fn == "/assets" || fn.startsWith("/assets/"))
+     {
+@@ -222,6 +236,13 @@ template<> OUString fromOString(OString const & s)
+ template<typename T> bool realpath_(const T& pstrFileName, T& ppstrResolvedName)
+ {
+     OString fn = toOString(pstrFileName);
++    if (osl::embeddedfs::contains(fn.getStr()))
++    {
++        if (osl::access(fn, F_OK) == -1)
++            return false;
++        ppstrResolvedName = pstrFileName;
++        return true;
++    }
+ #if defined ANDROID || defined(EMSCRIPTEN)
+ #if defined ANDROID
+     if (fn == "/assets" || fn.startsWith("/assets/"))
+@@ -278,6 +299,8 @@ bool osl::realpath(const OString& pstrFileName, OString& ppstrResolvedName)
+ 
+ int stat_c(const char* cpPath, struct stat* buf)
+ {
++    if (osl::embeddedfs::contains(cpPath))
++        return osl::embeddedfs::stat(cpPath, buf);
+ #ifdef ANDROID
+     if (strncmp(cpPath, "/assets", sizeof("/assets")-1) == 0 &&
+         (cpPath[sizeof("/assets")-1] == '\0' ||
+@@ -303,6 +326,8 @@ int stat_c(const char* cpPath, struct stat* buf)
+ 
+ int lstat_c(const char* cpPath, struct stat* buf)
+ {
++    if (osl::embeddedfs::contains(cpPath))
++        return osl::embeddedfs::stat(cpPath, buf);
+ #ifdef ANDROID
+     if (strncmp(cpPath, "/assets", sizeof("/assets")-1) == 0 &&
+         (cpPath[sizeof("/assets")-1] == '\0' ||
+diff --git a/sal/osl/w32/embeddedfs.cxx b/sal/osl/w32/embeddedfs.cxx
+new file mode 100644
+index 000000000..0049cdc87
+--- /dev/null
++++ b/sal/osl/w32/embeddedfs.cxx
+@@ -0,0 +1,252 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <sal/config.h>
++
++#include <algorithm>
++#include <cstdio>
++#include <cstdlib>
++#include <map>
++#include <string>
++#include <vector>
++
++#include <rtl/character.hxx>
++#include <rtl/ustring.hxx>
++
++#include "embeddedfs.hxx"
++
++namespace
++{
++struct Child
++{
++    std::u16string name;
++    const lo_embedded_file* file; // nullptr for a directory
++};
++
++// Written once by lo_embeddedfs_register before any other thread exists, read-only afterwards.
++// The maps are keyed by lower-case paths relative to the root, '/' separated.
++std::string g_aRootUtf8;
++std::u16string g_aRoot;
++std::map<std::u16string, const lo_embedded_file*, std::less<>> g_aFiles;
++std::map<std::u16string, std::vector<Child>, std::less<>> g_aDirs;
++
++bool isSeparator(sal_Unicode c) { return c == '\\' || c == '/'; }
++
++std::u16string lower(std::u16string_view s)
++{
++    std::u16string aLower(s);
++    for (auto& c : aLower)
++        c = static_cast<sal_Unicode>(rtl::toAsciiLowerCase(c));
++    return aLower;
++}
++
++void addChild(std::u16string_view aDir, std::u16string_view aName, const lo_embedded_file* pFile)
++{
++    auto& rChildren = g_aDirs[lower(aDir)];
++    for (const auto& rChild : rChildren)
++        if (rChild.name == aName)
++            return;
++    rChildren.push_back({ std::u16string(aName), pFile });
++}
++
++// Lists which embedded files a run looks for, to maintain the set of embedded files.
++void trace(const char* pWhat, std::u16string_view aRel)
++{
++    static const char* pTrace = getenv("LO_SLIM_TRACE_FILES");
++    if (!pTrace)
++        return;
++    if (FILE* f = fopen(pTrace, "a"))
++    {
++        fprintf(f, "%s\t%s\n", pWhat,
++                OUString(aRel.data(), aRel.size()).toUtf8().getStr());
++        fclose(f);
++    }
++}
++
++bool relativePath(std::u16string_view aPath, std::u16string& rRel)
++{
++    if (g_aRoot.empty())
++        return false;
++    if (aPath.starts_with(u"\\\\?\\"))
++        aPath.remove_prefix(4);
++    if (aPath.size() < g_aRoot.size())
++        return false;
++    for (size_t i = 0; i < g_aRoot.size(); ++i)
++    {
++        if (isSeparator(aPath[i]) ? !isSeparator(g_aRoot[i])
++                                  : rtl::toAsciiLowerCase(aPath[i]) != rtl::toAsciiLowerCase(g_aRoot[i]))
++            return false;
++    }
++    aPath.remove_prefix(g_aRoot.size());
++    if (!aPath.empty() && !isSeparator(aPath.front()))
++        return false;
++
++    rRel.clear();
++    size_t i = 0;
++    while (i < aPath.size())
++    {
++        while (i < aPath.size() && isSeparator(aPath[i]))
++            ++i;
++        size_t nEnd = i;
++        while (nEnd < aPath.size() && !isSeparator(aPath[nEnd]))
++            ++nEnd;
++        std::u16string_view aSegment = aPath.substr(i, nEnd - i);
++        i = nEnd;
++        if (aSegment.empty() || aSegment == u".")
++            continue;
++        if (aSegment == u"..")
++        {
++            size_t nSlash = rRel.rfind('/');
++            rRel.erase(nSlash == std::u16string::npos ? 0 : nSlash);
++            continue;
++        }
++        if (!rRel.empty())
++            rRel += '/';
++        rRel += lower(aSegment);
++    }
++    return true;
++}
++
++void describe(WIN32_FIND_DATAW& rData, std::u16string_view aName, const lo_embedded_file* pFile)
++{
++    rData = {};
++    if (pFile)
++    {
++        rData.dwFileAttributes = FILE_ATTRIBUTE_READONLY;
++        rData.nFileSizeLow = static_cast<DWORD>(pFile->size & 0xFFFFFFFF);
++        rData.nFileSizeHigh = static_cast<DWORD>(static_cast<sal_uInt64>(pFile->size) >> 32);
++    }
++    else
++        rData.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
++    size_t n = std::min(aName.size(), std::size(rData.cFileName) - 1);
++    std::copy_n(aName.data(), n, rData.cFileName);
++}
++}
++
++namespace osl::embeddedfs
++{
++struct Dir
++{
++    const std::vector<Child>* pChildren;
++    size_t nNext;
++};
++
++const char* root() { return g_aRootUtf8.c_str(); }
++
++bool contains(std::u16string_view aPath)
++{
++    std::u16string aRel;
++    return relativePath(aPath, aRel);
++}
++
++const lo_embedded_file* findFile(std::u16string_view aPath)
++{
++    std::u16string aRel;
++    if (!relativePath(aPath, aRel))
++        return nullptr;
++    auto it = g_aFiles.find(aRel);
++    trace(it == g_aFiles.end() ? "miss" : "open", aRel);
++    return it == g_aFiles.end() ? nullptr : it->second;
++}
++
++bool find(std::u16string_view aPath, WIN32_FIND_DATAW& rData)
++{
++    std::u16string aRel;
++    if (!relativePath(aPath, aRel))
++    {
++        SetLastError(ERROR_PATH_NOT_FOUND);
++        return false;
++    }
++    if (aRel.empty())
++    {
++        describe(rData, std::u16string_view(g_aRoot).substr(g_aRoot.find_last_of(u"\\") + 1),
++                 nullptr);
++        return true;
++    }
++    size_t nSlash = aRel.rfind('/');
++    std::u16string_view aParent
++        = nSlash == std::u16string::npos ? std::u16string_view() : std::u16string_view(aRel).substr(0, nSlash);
++    std::u16string_view aName = std::u16string_view(aRel).substr(nSlash + 1);
++    if (auto it = g_aDirs.find(aParent); it != g_aDirs.end())
++    {
++        for (const auto& rChild : it->second)
++        {
++            if (lower(rChild.name) == aName)
++            {
++                describe(rData, rChild.name, rChild.file);
++                return true;
++            }
++        }
++    }
++    trace("stat-miss", aRel);
++    SetLastError(ERROR_FILE_NOT_FOUND);
++    return false;
++}
++
++Dir* openDir(std::u16string_view aPath)
++{
++    std::u16string aRel;
++    if (!relativePath(aPath, aRel))
++    {
++        SetLastError(ERROR_PATH_NOT_FOUND);
++        return nullptr;
++    }
++    auto it = g_aDirs.find(aRel);
++    trace(it == g_aDirs.end() ? "dir-miss" : "dir", aRel);
++    if (it == g_aDirs.end())
++    {
++        SetLastError(g_aFiles.contains(aRel) ? ERROR_DIRECTORY : ERROR_PATH_NOT_FOUND);
++        return nullptr;
++    }
++    return new Dir{ &it->second, 0 };
++}
++
++bool readDir(Dir* pDir, WIN32_FIND_DATAW& rData)
++{
++    if (pDir->nNext >= pDir->pChildren->size())
++    {
++        SetLastError(ERROR_NO_MORE_FILES);
++        return false;
++    }
++    const Child& rChild = (*pDir->pChildren)[pDir->nNext++];
++    describe(rData, rChild.name, rChild.file);
++    return true;
++}
++
++void closeDir(Dir* pDir) { delete pDir; }
++}
++
++void lo_embeddedfs_register(const char* pRoot, const lo_embedded_file* aFiles, size_t nCount)
++{
++    g_aRootUtf8 = pRoot;
++    OUString aRoot = OUString::fromUtf8(pRoot).replace('/', '\\');
++    while (aRoot.getLength() > 1 && aRoot.endsWith("\\"))
++        aRoot = aRoot.copy(0, aRoot.getLength() - 1);
++    g_aRoot = std::u16string(aRoot.getStr(), aRoot.getLength());
++    g_aDirs[std::u16string()];
++    for (size_t i = 0; i < nCount; ++i)
++    {
++        OUString aPathString = OUString::fromUtf8(aFiles[i].path);
++        std::u16string aPath(aPathString.getStr(), aPathString.getLength());
++        g_aFiles[lower(aPath)] = &aFiles[i];
++        const lo_embedded_file* pFile = &aFiles[i];
++        for (;;)
++        {
++            size_t nSlash = aPath.rfind('/');
++            std::u16string aDir = nSlash == std::u16string::npos ? std::u16string() : aPath.substr(0, nSlash);
++            addChild(aDir, std::u16string_view(aPath).substr(nSlash == std::u16string::npos ? 0 : nSlash + 1), pFile);
++            if (aDir.empty())
++                break;
++            aPath = aDir;
++            pFile = nullptr;
++        }
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sal/osl/w32/embeddedfs.hxx b/sal/osl/w32/embeddedfs.hxx
+new file mode 100644
+index 000000000..e891c30f3
+--- /dev/null
++++ b/sal/osl/w32/embeddedfs.hxx
+@@ -0,0 +1,46 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <sal/config.h>
++
++#include <string_view>
++
++#include <systools/win32/uwinapi.h>
++
++#include <osl/detail/embeddedfs.h>
++
++/* Paths are system paths (backslash or slash separated, optionally with the \\?\ prefix) and
++   compare case-insensitively, as the file system's would. */
++namespace osl::embeddedfs
++{
++struct Dir;
++
++/// The registered root (like "C:\lo-embedded"), UTF-8, or an empty string when no tree is
++/// registered.
++const char* root();
++
++/// Whether the path lies inside the registered embedded tree.
++bool contains(std::u16string_view aPath);
++
++/// The embedded regular file at the path, or nullptr.
++const lo_embedded_file* findFile(std::u16string_view aPath);
++
++/// FindFirstFileW replacement: describes the file or directory at the path, or sets the last
++/// error and returns false.
++bool find(std::u16string_view aPath, WIN32_FIND_DATAW& rData);
++
++/// Directory listing; readDir returns false with ERROR_NO_MORE_FILES at the end.
++Dir* openDir(std::u16string_view aPath);
++bool readDir(Dir* pDir, WIN32_FIND_DATAW& rData);
++void closeDir(Dir* pDir);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sal/osl/w32/file.cxx b/sal/osl/w32/file.cxx
+index 302e4e1e6..b49bbb6aa 100644
+--- a/sal/osl/w32/file.cxx
++++ b/sal/osl/w32/file.cxx
+@@ -29,6 +29,7 @@
+ #include "file-impl.hxx"
+ #include "file_url.hxx"
+ #include "file_error.hxx"
++#include "embeddedfs.hxx"
+ 
+ #include <atomic>
+ #include <cassert>
+@@ -81,6 +82,13 @@ struct FileHandle_Impl
+     SIZE_T        m_bufsiz;
+     sal_uInt8 *   m_buffer;
+ 
++    /** The contents of a file compiled into the executable (see embeddedfs.hxx), which this
++        handle reads instead of m_hFile.
++    */
++    const sal_uInt8 * m_pEmbedded = nullptr;
++
++    bool isOpen() const { return m_pEmbedded || IsValidHandle(m_hFile); }
++
+     explicit      FileHandle_Impl (HANDLE hFile);
+                   ~FileHandle_Impl();
+ 
+@@ -208,6 +216,17 @@ oslFileError FileHandle_Impl::readAt(
+     if (!(m_state & StateBits::Readable))
+         return osl_File_E_BADF;
+ 
++    if (m_pEmbedded)
++    {
++        *pBytesRead = 0;
++        if (nOffset < static_cast<LONGLONG>(m_size))
++        {
++            *pBytesRead = std::min<sal_uInt64>(nBytesRequested, m_size - nOffset);
++            memcpy(pBuffer, m_pEmbedded + nOffset, *pBytesRead);
++        }
++        return osl_File_E_None;
++    }
++
+     if (nOffset != m_offset)
+     {
+         LARGE_INTEGER liOffset; liOffset.QuadPart = nOffset;
+@@ -622,6 +641,21 @@ oslFileError SAL_CALL osl_openFile(
+     if (result != osl_File_E_None)
+         return result;
+ 
++    if (osl::embeddedfs::contains(strSysPath))
++    {
++        // Files compiled into the executable are read-only; like on the other platforms, a
++        // write-open succeeds read-only and later writes fail.
++        const lo_embedded_file* pFile = osl::embeddedfs::findFile(strSysPath);
++        if (!pFile)
++            return (uFlags & osl_File_OpenFlag_Create) ? osl_File_E_ROFS : osl_File_E_NOENT;
++        FileHandle_Impl* pImpl = new FileHandle_Impl(INVALID_HANDLE_VALUE);
++        pImpl->m_pEmbedded = pFile->data;
++        pImpl->m_size = pFile->size;
++        pImpl->m_state = StateBits::Readable | StateBits::Seekable;
++        *pHandle = static_cast<oslFileHandle>(pImpl);
++        return osl_File_E_None;
++    }
++
+     // tdf126742 use FILE_SHARE_WRITE to get closer to non-Windows platform behaviour,
+     // for details and discussion see task please
+     DWORD dwAccess = GENERIC_READ, dwShare = FILE_SHARE_READ | FILE_SHARE_WRITE, dwCreation = 0;
+@@ -653,7 +687,7 @@ oslFileError SAL_CALL osl_openFile(
+ oslFileError SAL_CALL osl_syncFile(oslFileHandle Handle)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile))
++    if ((!pImpl) || !pImpl->isOpen())
+         return osl_File_E_INVAL;
+ 
+     std::lock_guard lock(pImpl->m_mutex);
+@@ -662,6 +696,9 @@ oslFileError SAL_CALL osl_syncFile(oslFileHandle Handle)
+     if (result != osl_File_E_None)
+         return result;
+ 
++    if (pImpl->m_pEmbedded)
++        return osl_File_E_None;
++
+     if (!FlushFileBuffers(pImpl->m_hFile))
+         return oslTranslateFileError(GetLastError());
+ 
+@@ -671,7 +708,7 @@ oslFileError SAL_CALL osl_syncFile(oslFileHandle Handle)
+ oslFileError SAL_CALL osl_closeFile(oslFileHandle Handle)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile))
++    if ((!pImpl) || !pImpl->isOpen())
+         return osl_File_E_INVAL;
+ 
+     oslFileError result;
+@@ -684,7 +721,7 @@ oslFileError SAL_CALL osl_closeFile(oslFileHandle Handle)
+             /* ignore double failure */
+             (void)::CloseHandle(pImpl->m_hFile);
+         }
+-        else if (!::CloseHandle(pImpl->m_hFile))
++        else if (!pImpl->m_pEmbedded && !::CloseHandle(pImpl->m_hFile))
+         {
+             /* translate error code */
+             result = oslTranslateFileError(GetLastError());
+@@ -724,7 +761,7 @@ oslFileError SAL_CALL osl_mapFile(
+     };
+ 
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!ppAddr))
++    if ((!pImpl) || !pImpl->isOpen() || (!ppAddr))
+         return osl_File_E_INVAL;
+     *ppAddr = nullptr;
+ 
+@@ -732,6 +769,14 @@ oslFileError SAL_CALL osl_mapFile(
+         return osl_File_E_OVERFLOW;
+     SIZE_T const nLength = sal::static_int_cast< SIZE_T >(uLength);
+ 
++    if (pImpl->m_pEmbedded)
++    {
++        if (uOffset > pImpl->m_size || uLength > pImpl->m_size - uOffset)
++            return osl_File_E_OVERFLOW;
++        *ppAddr = const_cast<sal_uInt8*>(pImpl->m_pEmbedded + uOffset);
++        return osl_File_E_None;
++    }
++
+     FileMapping aMap(::CreateFileMappingW(pImpl->m_hFile, nullptr, SEC_COMMIT | PAGE_READONLY, 0, 0, nullptr));
+     if (!IsValidHandle(aMap.m_handle))
+         return oslTranslateFileError(GetLastError());
+@@ -782,8 +827,11 @@ oslFileError SAL_CALL osl_unmapFile(void* pAddr, sal_uInt64 /* uLength */)
+     return osl_File_E_None;
+ }
+ 
+-oslFileError SAL_CALL osl_unmapMappedFile(oslFileHandle /* Handle */, void* pAddr, sal_uInt64 uLength)
++oslFileError SAL_CALL osl_unmapMappedFile(oslFileHandle Handle, void* pAddr, sal_uInt64 uLength)
+ {
++    FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
++    if (pImpl && pImpl->m_pEmbedded)
++        return osl_File_E_None;
+     return osl_unmapFile(pAddr, uLength);
+ }
+ 
+@@ -793,7 +841,7 @@ SAL_CALL osl_readLine(
+     sal_Sequence ** ppSequence)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!ppSequence))
++    if ((!pImpl) || !pImpl->isOpen() || (!ppSequence))
+         return osl_File_E_INVAL;
+     sal_uInt64 uBytesRead = 0;
+ 
+@@ -813,7 +861,7 @@ oslFileError SAL_CALL osl_readFile(
+     sal_uInt64 *  pBytesRead)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pBuffer) || (!pBytesRead))
++    if ((!pImpl) || !pImpl->isOpen() || (!pBuffer) || (!pBytesRead))
+         return osl_File_E_INVAL;
+ 
+     // read at current filepos; filepos += *pBytesRead;
+@@ -833,7 +881,7 @@ oslFileError SAL_CALL osl_writeFile(
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pBuffer) || (!pBytesWritten))
++    if ((!pImpl) || !pImpl->isOpen() || (!pBuffer) || (!pBytesWritten))
+         return osl_File_E_INVAL;
+ 
+     // write at current filepos; filepos += *pBytesWritten;
+@@ -866,7 +914,7 @@ oslFileError SAL_CALL osl_readFileAt(
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pBuffer) || (!pBytesRead))
++    if ((!pImpl) || !pImpl->isOpen() || (!pBuffer) || (!pBytesRead))
+         return osl_File_E_INVAL;
+     if (!(pImpl->m_state & StateBits::Seekable))
+         return osl_File_E_SPIPE;
+@@ -889,7 +937,7 @@ oslFileError SAL_CALL osl_writeFileAt(
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pBuffer) || (!pBytesWritten))
++    if ((!pImpl) || !pImpl->isOpen() || (!pBuffer) || (!pBytesWritten))
+         return osl_File_E_INVAL;
+     if (!(pImpl->m_state & StateBits::Seekable))
+         return osl_File_E_SPIPE;
+@@ -907,7 +955,7 @@ oslFileError SAL_CALL osl_isEndOfFile(oslFileHandle Handle, sal_Bool *pIsEOF)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pIsEOF))
++    if ((!pImpl) || !pImpl->isOpen() || (!pIsEOF))
+         return osl_File_E_INVAL;
+ 
+     std::lock_guard lock(pImpl->m_mutex);
+@@ -918,7 +966,7 @@ oslFileError SAL_CALL osl_isEndOfFile(oslFileHandle Handle, sal_Bool *pIsEOF)
+ oslFileError SAL_CALL osl_getFilePos(oslFileHandle Handle, sal_uInt64 *pPos)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pPos))
++    if ((!pImpl) || !pImpl->isOpen() || (!pPos))
+         return osl_File_E_INVAL;
+ 
+     // no need to lock because pos is atomic
+@@ -930,7 +978,7 @@ oslFileError SAL_CALL osl_getFilePos(oslFileHandle Handle, sal_uInt64 *pPos)
+ oslFileError SAL_CALL osl_setFilePos(oslFileHandle Handle, sal_uInt32 uHow, sal_Int64 uOffset)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile))
++    if ((!pImpl) || !pImpl->isOpen())
+         return osl_File_E_INVAL;
+ 
+     if (exceedsMaxLONGLONG(uOffset) || exceedsMinLONGLONG(uOffset))
+@@ -974,7 +1022,7 @@ oslFileError SAL_CALL osl_getFileSize(oslFileHandle Handle, sal_uInt64 *pSize)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile) || (!pSize))
++    if ((!pImpl) || !pImpl->isOpen() || (!pSize))
+         return osl_File_E_INVAL;
+ 
+     std::lock_guard lock(pImpl->m_mutex);
+@@ -986,7 +1034,7 @@ oslFileError SAL_CALL osl_setFileSize(oslFileHandle Handle, sal_uInt64 uSize)
+ {
+     FileHandle_Impl * pImpl = static_cast<FileHandle_Impl*>(Handle);
+ 
+-    if ((!pImpl) || !IsValidHandle(pImpl->m_hFile))
++    if ((!pImpl) || !pImpl->isOpen())
+         return osl_File_E_INVAL;
+     if (!(pImpl->m_state & StateBits::Writeable))
+         return osl_File_E_BADF;
+diff --git a/sal/osl/w32/file_dirvol.cxx b/sal/osl/w32/file_dirvol.cxx
+index ad92c6f05..596e18f0f 100644
+--- a/sal/osl/w32/file_dirvol.cxx
++++ b/sal/osl/w32/file_dirvol.cxx
+@@ -23,6 +23,7 @@
+ #include <systools/win32/uwinapi.h>
+ 
+ #include "file_url.hxx"
++#include "embeddedfs.hxx"
+ #include "filetime.hxx"
+ #include "file_error.hxx"
+ 
+@@ -349,6 +350,7 @@ typedef struct tagDIRECTORY
+ {
+     HANDLE           hFind;
+     WIN32_FIND_DATAW aFirstData;
++    osl::embeddedfs::Dir* pEmbedded = nullptr; // listed instead of hFind
+ } DIRECTORY, *PDIRECTORY, *LPDIRECTORY;
+ 
+ }
+@@ -358,6 +360,17 @@ static HANDLE OpenDirectory(const OUString& path)
+     if (path.isEmpty())
+         return nullptr;
+ 
++    if (osl::embeddedfs::contains(path))
++    {
++        osl::embeddedfs::Dir* pEmbedded = osl::embeddedfs::openDir(path);
++        if (!pEmbedded)
++            return nullptr;
++        auto xDirectory = std::make_unique<DIRECTORY>();
++        xDirectory->hFind = INVALID_HANDLE_VALUE;
++        xDirectory->pEmbedded = pEmbedded;
++        return static_cast<HANDLE>(xDirectory.release());
++    }
++
+     std::u16string_view suffix;
+     if (!path.endsWith(u"\\"))
+         suffix = u"*.*";
+@@ -393,6 +406,9 @@ static bool EnumDirectory(HANDLE hDirectory, LPWIN32_FIND_DATAW pFindData)
+         return false;
+     }
+ 
++    if (pDirectory->pEmbedded)
++        return osl::embeddedfs::readDir(pDirectory->pEmbedded, *pFindData);
++
+     bool fSuccess = false;
+     bool fValid;
+     do
+@@ -425,7 +441,12 @@ static bool CloseDirectory(HANDLE hDirectory)
+ 
+     if (pDirectory)
+     {
+-        if (IsValidHandle(pDirectory->hFind))
++        if (pDirectory->pEmbedded)
++        {
++            osl::embeddedfs::closeDir(pDirectory->pEmbedded);
++            fSuccess = true;
++        }
++        else if (IsValidHandle(pDirectory->hFind))
+             fSuccess = FindClose(pDirectory->hFind);
+ 
+         delete pDirectory;
+@@ -959,7 +980,11 @@ oslFileError SAL_CALL osl_getDirectoryItem(rtl_uString *strFilePath, oslDirector
+             if (!strSysFilePath.isEmpty() && strSysFilePath[strSysFilePath.getLength() - 1] == '\\')
+                 strSysFilePath = strSysFilePath.copy(0, strSysFilePath.getLength() - 1);
+ 
+-            hFind = FindFirstFileW( o3tl::toW(strSysFilePath.getStr()), &aFindData );
++            // an embedded file has no find handle to close
++            if (osl::embeddedfs::contains(strSysFilePath))
++                hFind = osl::embeddedfs::find(strSysFilePath, aFindData) ? nullptr : INVALID_HANDLE_VALUE;
++            else
++                hFind = FindFirstFileW( o3tl::toW(strSysFilePath.getStr()), &aFindData );
+ 
+             if ( hFind != INVALID_HANDLE_VALUE )
+             {
+@@ -978,7 +1003,8 @@ oslFileError SAL_CALL osl_getDirectoryItem(rtl_uString *strFilePath, oslDirector
+                     *pItem = pItemImpl;
+                 }
+ 
+-                FindClose( hFind );
++                if (hFind)
++                    FindClose( hFind );
+             }
+             else
+                 error = oslTranslateFileError( GetLastError() );
+@@ -1468,12 +1494,20 @@ oslFileError SAL_CALL osl_getFileStatus(
+ 
+     if ( uFieldMask & osl_FileStatus_Mask_Validate )
+     {
+-        HANDLE  hFind = FindFirstFileW( o3tl::toW(sFullPath.getStr() ), &pItemImpl->FindData );
+-
+-        if ( hFind != INVALID_HANDLE_VALUE )
+-            FindClose( hFind );
++        if (osl::embeddedfs::contains(sFullPath))
++        {
++            if (!osl::embeddedfs::find(sFullPath, pItemImpl->FindData))
++                return oslTranslateFileError( GetLastError() );
++        }
+         else
+-            return oslTranslateFileError( GetLastError() );
++        {
++            HANDLE  hFind = FindFirstFileW( o3tl::toW(sFullPath.getStr() ), &pItemImpl->FindData );
++
++            if ( hFind != INVALID_HANDLE_VALUE )
++                FindClose( hFind );
++            else
++                return oslTranslateFileError( GetLastError() );
++        }
+ 
+         uFieldMask &= ~ osl_FileStatus_Mask_Validate;
+     }
+diff --git a/sal/rtl/bootstrap.cxx b/sal/rtl/bootstrap.cxx
+index 2ca189923..bfe36bcbf 100644
+--- a/sal/rtl/bootstrap.cxx
++++ b/sal/rtl/bootstrap.cxx
+@@ -20,6 +20,11 @@
+ 
+ #include <rtl/bootstrap.h>
+ #include <rtl/bootstrap.hxx>
++#if defined _WIN32
++#include "../osl/w32/embeddedfs.hxx"
++#else
++#include "../osl/unx/embeddedfs.hxx"
++#endif
+ #include <osl/diagnose.h>
+ #include <osl/process.h>
+ #include <osl/file.hxx>
+@@ -233,6 +238,15 @@ static OUString getIniFileName(bool overriding) {
+         : OUString("vnd.sun.star.pathname:/instdir/program/sofficerc");
+     resolvePathnameUrl(&fileName);
+ #else
++    if (const char* pRoot = osl::embeddedfs::root(); *pRoot)
++    {
++        // A program with an embedded installation (static builds) reads its ini files
++        // from there, never from beside the executable.
++        fileName = "vnd.sun.star.pathname:" + OUString::fromUtf8(pRoot) + "/" LIBO_ETC_FOLDER
++                   + (overriding ? u"/fundamental.override.ini" : u"/sofficerc");
++        resolvePathnameUrl(&fileName);
++        return fileName;
++    }
+     if (!overriding && getFromCommandLineArgs(u"INIFILENAME"_ustr, &fileName))
+     {
+         resolvePathnameUrl(&fileName);
+diff --git a/sal/util/sal.map b/sal/util/sal.map
+index c5c3e4d55..46e412740 100644
+--- a/sal/util/sal.map
++++ b/sal/util/sal.map
+@@ -761,6 +761,11 @@ PRIVATE_1.8 { # LibreOffice 7.3
+         rtl_uString_newReplaceStrAtUtf16L;
+ } PRIVATE_1.7;
+ 
++PRIVATE_embeddedfs.1 { # libreoffice-slim
++    global:
++        lo_embeddedfs_register;
++};
++
+ PRIVATE_textenc.1 { # LibreOffice 3.6
+     global:
+         _ZN3sal6detail7textenc20convertCharToUnicode*;

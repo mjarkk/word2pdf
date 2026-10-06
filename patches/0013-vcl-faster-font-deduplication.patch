@@ -1,0 +1,38 @@
+diff --git a/vcl/unx/generic/fontmanager/fontconfig.cxx b/vcl/unx/generic/fontmanager/fontconfig.cxx
+index 642a1a7ef..6d48f24f0 100644
+--- a/vcl/unx/generic/fontmanager/fontconfig.cxx
++++ b/vcl/unx/generic/fontmanager/fontconfig.cxx
+@@ -291,6 +291,23 @@ namespace
+         }
+     };
+ 
++    //Whether the full comparison in isPreviouslyDuplicateOrObsoleted can find a and b equal: it
++    //compares these too, and they tell most faces of a family apart. Copying both patterns for
++    //each pair is quadratic in the faces of a family, and the named instances of a variable font
++    //are hundreds of faces.
++    bool haveSameStyle(const FcPattern *a, const FcPattern *b)
++    {
++        for (const char* pObject : { FC_STYLE, FC_WEIGHT, FC_SLANT, FC_WIDTH })
++        {
++            FcValue aValue, bValue;
++            FcResult eResA = FcPatternGet(a, pObject, 0, &aValue);
++            FcResult eResB = FcPatternGet(b, pObject, 0, &bValue);
++            if (eResA != eResB || (eResA == FcResultMatch && !FcValueEqual(aValue, bValue)))
++                return false;
++        }
++        return true;
++    }
++
+     //See fdo#30729 for where an old opensymbol installed system-wide can
+     //clobber the new opensymbol installed locally
+ 
+@@ -320,6 +337,9 @@ namespace
+             if (compareFontNames(a, b) != 0)
+                 break;
+ 
++            if (!haveSameStyle(a, b))
++                continue;
++
+             FcPattern* pTestPatternB = FcPatternDuplicate(b);
+             FcPatternDel(pTestPatternB, FC_FILE);
+             FcPatternDel(pTestPatternB, FC_CHARSET);

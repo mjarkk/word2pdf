@@ -1,0 +1,478 @@
+diff --git a/configure.ac b/configure.ac
+index 9f67ee456..155ab00d0 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -5948,7 +5948,8 @@ fi
+ 
+ DISABLE_GUI=""
+ if test "$enable_gui" = "no"; then
+-    if test "$using_x11" != yes; then
++    # without X11, the headless plugin (macOS: --enable-headless) is the only backend left
++    if test "$using_x11" != yes -a "$using_headless_plugin" != yes; then
+         AC_MSG_ERROR([$host_os operating system is not suitable to build LibreOffice with --disable-gui.])
+     fi
+     USING_X11=
+@@ -6422,7 +6423,9 @@ if test "$cross_compiling" = "yes"; then
+     BUILD_PATH=$PATH
+     PATH=$OLD_PATH
+ 
+-    line=`echo "LO_PATH_FOR_BUILD='${BUILD_PATH}'" | sed -e 's,/CONF-FOR-BUILD,,g'`
++    # with WSL as helper, the BUILD side's paths also name this directory by its 8.3 short name
++    conf_for_build=`sed -n 's,^export BUILDDIR=.*/,,p' config_host.mk`
++    line=`echo "LO_PATH_FOR_BUILD='${BUILD_PATH}'" | sed -e 's,/CONF-FOR-BUILD,,g' -e "s,/$conf_for_build,,g"`
+     echo "$line" >>build-config
+ 
+     for V in $DIRECT_FOR_BUILD_SETTINGS; do
+@@ -6446,7 +6449,7 @@ if test "$cross_compiling" = "yes"; then
+     for V in INSTDIR INSTROOT WORKDIR; do
+         VV='$'$V
+         VV=`eval "echo $VV"`
+-        VV=`echo $VV | sed -e "s,/CONF-FOR-BUILD/\([[a-z]]*\),/\1_for_build,g"`
++        VV=`echo $VV | sed -e "s,/CONF-FOR-BUILD/\([[a-z]]*\),/\1_for_build,g" -e "s,/$conf_for_build/\([[a-z]]*\),/\1_for_build,g"`
+         if test -n "$VV"; then
+             line="${V}_FOR_BUILD='$VV'"
+             echo "$line" >>build-config
+@@ -6456,8 +6459,9 @@ if test "$cross_compiling" = "yes"; then
+     )
+     test -f CONF-FOR-BUILD/build-config || AC_MSG_ERROR([setup/configure for BUILD side failed, see CONF-FOR-BUILD/config.log])
+     test -f config_build.mk || AC_MSG_ERROR([A file called config_build.mk was supposed to have been copied here, but it isn't found])
++    conf_for_build=`sed -n 's,^export BUILDDIR=.*/,,p' config_build.mk`
+     perl -pi -e 's,/(workdir|instdir)(/|$),/\1_for_build\2,g;' \
+-             -e 's,/CONF-FOR-BUILD,,g;' config_build.mk
++             -e 's,/CONF-FOR-BUILD,,g;' -e "s,/\Q$conf_for_build\E,,g;" config_build.mk
+ 
+     eval `cat CONF-FOR-BUILD/build-config`
+ 
+@@ -6714,7 +6718,11 @@ fi
+ AC_SUBST(WITH_MYSPELL_DICTS)
+ 
+ # There are no "system" myspell, hyphen or mythes dictionaries on macOS, Windows, Android or iOS.
+-if test $_os = Darwin -o $_os = WINNT -o $_os = iOS -o $_os = Android; then
++# A headless macOS build can still take hyphenation patterns from a directory it is told
++# (--with-external-hyph-dir) or from DICPATH.
++if test $_os = Darwin -a "$using_headless_plugin" = yes -a "$with_system_dicts" = yes; then
++    :
++elif test $_os = Darwin -o $_os = WINNT -o $_os = iOS -o $_os = Android; then
+     if test "$with_system_dicts" = yes; then
+         AC_MSG_ERROR([There are no system dicts on this OS in the formats the 3rd-party libs we use expect]);
+     fi
+@@ -7120,7 +7128,9 @@ if test $_os = Darwin; then
+             if test "$enable_bogus_pkg_config" = "yes"; then
+                 AC_MSG_RESULT([yes, user-approved from unknown origin.])
+             else
+-                if test -z "$($PKG_CONFIG --list-all |grep -v '^libpkgconf')" ; then
++                # pkgconf lists virtual packages of its own (libpkgconf; pkg-config and pkgconf
++                # since 3.0)
++                if test -z "$($PKG_CONFIG --list-all |grep -v -e '^libpkgconf' -e '^pkg-config ' -e '^pkgconf ')" ; then
+                     AC_MSG_RESULT([yes, accepted since no packages available in default searchpath])
+                 else
+                     AC_MSG_ERROR([yes, from unknown origin. This *will* break the build. Please modify your PATH variable so that $PKG_CONFIG is no longer found by configure scripts.])
+@@ -10468,7 +10478,10 @@ else
+     if test "$COM" = "MSC"; then
+         LIBXML_CFLAGS="${LIBXML_CFLAGS} -I${WORKDIR}/UnpackedTarball/icu/source/i18n -I${WORKDIR}/UnpackedTarball/icu/source/common"
+     fi
+-    if test "$COM" = "MSC"; then
++    if test "$COM" = "MSC" -a "$DISABLE_DYNLOADING" = TRUE; then
++        LIBXML_CFLAGS="${LIBXML_CFLAGS} -DLIBXML_STATIC"
++        LIBXML_LIBS="${WORKDIR}/UnpackedTarball/libxml2/win32/bin.msvc/libxml2_a.lib"
++    elif test "$COM" = "MSC"; then
+         LIBXML_LIBS="${WORKDIR}/UnpackedTarball/libxml2/win32/bin.msvc/libxml2.lib"
+     else
+         LIBXML_LIBS="-L${WORKDIR}/UnpackedTarball/libxml2/.libs -lxml2"
+@@ -12875,7 +12888,7 @@ AC_SUBST(ENABLE_GSTREAMER_1_0)
+ 
+ ENABLE_OPENGL_TRANSITIONS=
+ ENABLE_OPENGL_CANVAS=
+-if test $_os = iOS -o $_os = Android -o "$ENABLE_FUZZERS" = "TRUE"; then
++if test $_os = iOS -o $_os = Android -o "$ENABLE_FUZZERS" = "TRUE" -o -n "$DISABLE_GUI"; then
+    : # disable
+ elif test "$_os" = "Darwin"; then
+     # We use frameworks on macOS, no need for detail checks
+diff --git a/external/cairo/ExternalProject_cairo.mk b/external/cairo/ExternalProject_cairo.mk
+index 681544068..e374750bc 100644
+--- a/external/cairo/ExternalProject_cairo.mk
++++ b/external/cairo/ExternalProject_cairo.mk
+@@ -101,6 +101,7 @@ $(call gb_ExternalProject_get_state_target,cairo,build) :
+ 			$(if $(filter TRUE,$(DISABLE_DYNLOADING)),-Ddefault_library=static,-Ddefault_library=shared) \
+ 			$(if $(filter EMSCRIPTEN ANDROID iOS MACOSX,$(OS)),-Dxlib=disabled -Dxcb=disabled,$(if $(filter TRUE,$(DISABLE_GUI)),-Dxlib=disabled -Dxcb=disabled,-Dxlib=enabled -Dxcb=enabled)) \
+ 			$(if $(filter iOS,$(OS)),-Dquartz=enabled) \
++			$(if $(filter MACOSXTRUE,$(OS)$(DISABLE_GUI)),-Dquartz=disabled) \
+ 			$(if $(filter iOS,$(OS)),-Dfreetype=disabled,-Dfreetype=enabled -Dfontconfig=enabled) \
+ 			-Dgtk_doc=false -Dtests=disabled \
+ 			$(if $(CROSS_COMPILING),--cross-file cross-file.txt) \
+@@ -108,7 +109,7 @@ $(call gb_ExternalProject_get_state_target,cairo,build) :
+ 			$(if $(filter-out $(BUILD_PLATFORM),$(HOST_PLATFORM))$(WSL),--cross-file cross-file.txt) && \
+ 		$(MESON) compile -C builddir \
+ 			$(if $(verbose),--verbose) \
+-			$(if $(filter MACOSX,$(OS)), \
++			$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)), \
+ 				&& install_name_tool -id @__________________________________________________OOO/libcairo-lo.2.dylib \
+ 					$(gb_UnpackedTarball_workdir)/cairo/builddir/src/libcairo-lo.2.dylib \
+ 				&& $(PERL) $(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl OOO \
+diff --git a/external/cairo/ExternalProject_pixman.mk b/external/cairo/ExternalProject_pixman.mk
+index c92599478..e5862e288 100644
+--- a/external/cairo/ExternalProject_pixman.mk
++++ b/external/cairo/ExternalProject_pixman.mk
+@@ -62,7 +62,7 @@ $(call gb_ExternalProject_get_state_target,pixman,build) :
+ 			$(if $(filter-out $(BUILD_PLATFORM),$(HOST_PLATFORM))$(WSL),--cross-file cross-file.txt) && \
+ 		$(MESON) compile -C builddir \
+ 			$(if $(verbose),--verbose) \
+-			$(if $(filter MACOSX,$(OS)), \
++			$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)), \
+ 				&& install_name_tool -id @__________________________________________________OOO/libpixman-1.0.dylib \
+ 					$(gb_UnpackedTarball_workdir)/pixman/builddir/pixman/libpixman-1.0.dylib \
+ 				&& $(PERL) $(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl OOO \
+diff --git a/external/liblangtag/ExternalPackage_liblangtag.mk b/external/liblangtag/ExternalPackage_liblangtag.mk
+index 385d54ddb..ffea1f88d 100644
+--- a/external/liblangtag/ExternalPackage_liblangtag.mk
++++ b/external/liblangtag/ExternalPackage_liblangtag.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,liblangtag,liblangtag))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,liblangtag,liblangtag))
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_DYNLOADING),MACOSX)
+ $(eval $(call gb_ExternalPackage_add_file,liblangtag,$(LIBO_LIB_FOLDER)/liblangtag.1.dylib,liblangtag/.libs/liblangtag.1.dylib))
+ else ifeq ($(DISABLE_DYNLOADING),)
+ $(eval $(call gb_ExternalPackage_add_file,liblangtag,$(LIBO_LIB_FOLDER)/liblangtag-lo.so.1,liblangtag/.libs/liblangtag-lo.so.1.4.2))
+diff --git a/external/liblangtag/ExternalProject_liblangtag.mk b/external/liblangtag/ExternalProject_liblangtag.mk
+index 1ba3bbfcc..2734b9b11 100644
+--- a/external/liblangtag/ExternalProject_liblangtag.mk
++++ b/external/liblangtag/ExternalProject_liblangtag.mk
+@@ -39,7 +39,7 @@ $(call gb_ExternalProject_get_state_target,liblangtag,build):
+ 		&& $(if $(verbose),V=1) \
+ 		   $(MAKE) \
+                 LIBO_TUNNEL_LIBRARY_PATH='$(subst ','\'',$(subst $$,$$$$,$(call gb_Helper_extend_ld_path,$(gb_UnpackedTarball_workdir)/liblangtag/liblangtag/.libs)))' \
+-		$(if $(filter MACOSX,$(OS)),\
++		$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)),\
+ 			&& $(PERL) $(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl URELIB \
+ 				$(EXTERNAL_WORKDIR)/liblangtag/.libs/liblangtag.1.dylib \
+ 		) \
+diff --git a/external/libxslt/ExternalProject_libxslt.mk b/external/libxslt/ExternalProject_libxslt.mk
+index 51a8775da..7334af529 100644
+--- a/external/libxslt/ExternalProject_libxslt.mk
++++ b/external/libxslt/ExternalProject_libxslt.mk
+@@ -44,7 +44,7 @@ $(call gb_ExternalProject_get_state_target,libxslt,build):
+ 			$(if $(SYSTEM_LIBXML),,--with-libxml-src=$(gb_UnpackedTarball_workdir)/libxml2) \
+ 		&& chmod 777 xslt-config \
+ 		&& $(MAKE) \
+-		$(if $(filter MACOSX,$(OS)),\
++		$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)),\
+ 			&& $(PERL) $(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl OOO \
+ 				$(EXTERNAL_WORKDIR)/libxslt/.libs/libxslt.1.dylib \
+ 		) \
+diff --git a/external/redland/ExternalPackage_raptor.mk b/external/redland/ExternalPackage_raptor.mk
+index 119e52f9e..b1ba48786 100644
+--- a/external/redland/ExternalPackage_raptor.mk
++++ b/external/redland/ExternalPackage_raptor.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,raptor,raptor))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,raptor,raptor))
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_DYNLOADING),MACOSX)
+ $(eval $(call gb_ExternalPackage_add_file,raptor,$(LIBO_LIB_FOLDER)/libraptor2-lo.$(RAPTOR_MAJOR).dylib,src/.libs/libraptor2-lo.$(RAPTOR_MAJOR).dylib))
+ else ifeq ($(COM),MSC)
+ $(eval $(call gb_ExternalPackage_add_file,raptor,$(LIBO_LIB_FOLDER)/libraptor2.dll,src/.libs/libraptor2.dll))
+diff --git a/external/redland/ExternalPackage_rasqal.mk b/external/redland/ExternalPackage_rasqal.mk
+index 57fe97c38..e37a86de2 100644
+--- a/external/redland/ExternalPackage_rasqal.mk
++++ b/external/redland/ExternalPackage_rasqal.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,rasqal,rasqal))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,rasqal,rasqal))
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_DYNLOADING),MACOSX)
+ $(eval $(call gb_ExternalPackage_add_file,rasqal,$(LIBO_LIB_FOLDER)/librasqal-lo.$(RASQAL_MAJOR).dylib,src/.libs/librasqal-lo.$(RASQAL_MAJOR).dylib))
+ else ifeq ($(COM),MSC)
+ $(eval $(call gb_ExternalPackage_add_file,rasqal,$(LIBO_LIB_FOLDER)/librasqal.dll,src/.libs/librasqal.dll))
+diff --git a/external/redland/ExternalPackage_redland.mk b/external/redland/ExternalPackage_redland.mk
+index 8c35d850e..578c6fe86 100644
+--- a/external/redland/ExternalPackage_redland.mk
++++ b/external/redland/ExternalPackage_redland.mk
+@@ -11,7 +11,7 @@ $(eval $(call gb_ExternalPackage_ExternalPackage,redland,redland))
+ 
+ $(eval $(call gb_ExternalPackage_use_external_project,redland,redland))
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_DYNLOADING),MACOSX)
+ $(eval $(call gb_ExternalPackage_add_file,redland,$(LIBO_LIB_FOLDER)/librdf-lo.$(REDLAND_MAJOR).dylib,src/.libs/librdf-lo.$(REDLAND_MAJOR).dylib))
+ else ifeq ($(COM),MSC)
+ $(eval $(call gb_ExternalPackage_add_file,redland,$(LIBO_LIB_FOLDER)/librdf.dll,src/.libs/librdf.dll))
+diff --git a/external/redland/ExternalProject_rasqal.mk b/external/redland/ExternalProject_rasqal.mk
+index 3d0b522f6..1e6e1853b 100644
+--- a/external/redland/ExternalProject_rasqal.mk
++++ b/external/redland/ExternalProject_rasqal.mk
+@@ -46,7 +46,7 @@ $(call gb_ExternalProject_get_state_target,rasqal,build):
+ 			) \
+ 			$(if $(SYSTEM_LIBXML),,--with-xml2-config=$(gb_UnpackedTarball_workdir)/libxml2/xml2-config) \
+ 		&& $(MAKE) \
+-		$(if $(filter MACOSX,$(OS)),&& $(PERL) \
++		$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)),&& $(PERL) \
+ 			$(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl OOO \
+ 			$(EXTERNAL_WORKDIR)/src/.libs/librasqal-lo.$(RASQAL_MAJOR).dylib) \
+ 	)
+diff --git a/external/redland/ExternalProject_redland.mk b/external/redland/ExternalProject_redland.mk
+index fe6306a7f..14416c788 100644
+--- a/external/redland/ExternalProject_redland.mk
++++ b/external/redland/ExternalProject_redland.mk
+@@ -49,7 +49,7 @@ $(call gb_ExternalProject_get_state_target,redland,build):
+ 				--enable-shared --disable-static \
+ 			) \
+ 		&& $(MAKE) \
+-		$(if $(filter MACOSX,$(OS)),&& $(PERL) \
++		$(if $(filter MACOSX,$(OS)$(DISABLE_DYNLOADING)),&& $(PERL) \
+ 			$(SRCDIR)/solenv/bin/macosx-change-install-names.pl shl OOO \
+ 			$(EXTERNAL_WORKDIR)/src/.libs/librdf-lo.$(REDLAND_MAJOR).dylib) \
+ 	)
+diff --git a/sal/osl/unx/salinit.cxx b/sal/osl/unx/salinit.cxx
+index fb6922a2e..7957e1343 100644
+--- a/sal/osl/unx/salinit.cxx
++++ b/sal/osl/unx/salinit.cxx
+@@ -22,8 +22,8 @@
+ #include <sal/config.h>
+ 
+ #if defined MACOSX
+-#include <cassert>
+-#include <limits>
++#include <vector>
++#include <libproc.h>
+ #include <unistd.h>
+ #include <sys/stat.h>
+ #endif
+@@ -64,18 +64,15 @@ void sal_detail_initialize(int argc, char ** argv) {
+     // of processes here, not just soffice, but hopefully none of our processes
+     // rely on being spawned with certain fds already open. Unfortunately, Mac
+     // macOS appears to have no better interface to close all fds (like
+-    // closefrom):
+-    long openMax = sysconf(_SC_OPEN_MAX);
+-    // When LibreOffice restarts itself on macOS 11 beta on arm64, for
+-    // some reason sysconf(_SC_OPEN_MAX) returns 0x7FFFFFFFFFFFFFFF,
+-    // so use a sanity limit here.
+-    if (openMax == -1 || openMax == std::numeric_limits<long>::max()) {
+-        openMax = 100000;
+-    }
+-    assert(openMax >= 0 && openMax <= std::numeric_limits< int >::max());
+-    for (int fd = 3; fd < int(openMax); ++fd) {
++    // closefrom), but it can list the open ones; trying every possible fd
++    // would take long with a high limit (RLIMIT_NOFILE can be 1048576):
++    int size = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, nullptr, 0);
++    std::vector<proc_fdinfo> fds(size > 0 ? size / sizeof(proc_fdinfo) : 0);
++    size = fds.empty() ? 0 : proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, fds.data(), size);
++    for (int i = 0; i < size / int(sizeof(proc_fdinfo)); ++i) {
++        int fd = fds[i].proc_fd;
+         struct stat s;
+-        if (fstat(fd, &s) != -1 && S_ISREG(s.st_mode))
++        if (fd >= 3 && fstat(fd, &s) != -1 && S_ISREG(s.st_mode))
+             close(fd);
+     }
+ #endif
+diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
+index ffd746efa..cc8f86692 100644
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -324,13 +324,14 @@ $(eval $(call gb_SdiTarget_set_include,sfx2/sdi/sfxslots,\
+     -I$(SRCDIR)/sfx2/sdi \
+ ))
+ 
+-ifeq ($(OS),$(filter WNT MACOSX,$(OS)))
++# the macOS one is a Dock menu, so it needs the GUI
++ifneq ($(filter WNT MACOSX,$(OS)$(DISABLE_GUI)),)
+ $(eval $(call gb_Library_add_defs,sfx,\
+     -DENABLE_QUICKSTART_APPLET \
+ ))
+ endif
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_GUI),MACOSX)
+ $(eval $(call gb_Library_add_cxxflags,sfx,\
+     $(gb_OBJCXXFLAGS) \
+ ))
+diff --git a/sfx2/source/appl/shutdownicon.cxx b/sfx2/source/appl/shutdownicon.cxx
+index cd21d485e..6a6d6bfae 100644
+--- a/sfx2/source/appl/shutdownicon.cxx
++++ b/sfx2/source/appl/shutdownicon.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <sal/config.h>
++#include <config_features.h>
+ #include <sal/log.hxx>
+ 
+ #include <shutdownicon.hxx>
+@@ -575,7 +576,7 @@ void ShutdownIcon::LeaveModalMode()
+ 
+ #ifdef _WIN32
+ // defined in shutdowniconw32.cxx
+-#elif defined MACOSX
++#elif defined MACOSX && HAVE_FEATURE_UI
+ // defined in shutdowniconaqua.cxx
+ #else
+ bool ShutdownIcon::IsQuickstarterInstalled()
+diff --git a/solenv/gbuild/platform/macosx.mk b/solenv/gbuild/platform/macosx.mk
+index 7155fd03b..12e467336 100644
+--- a/solenv/gbuild/platform/macosx.mk
++++ b/solenv/gbuild/platform/macosx.mk
+@@ -21,6 +21,9 @@ gb_SDKDIR := $(MACOSX_SDK_PATH)
+ 
+ include $(GBUILDDIR)/platform/com_GCC_defs.mk
+ 
++# ld64 has no --gc-sections; -dead_strip is its equivalent
++gb_LinkTarget_LDFLAGS := $(patsubst -Wl$(COMMA)--gc-sections,-Wl$(COMMA)-dead_strip,$(gb_LinkTarget_LDFLAGS))
++
+ # Darwin mktemp -t expects a prefix, not a pattern
+ gb_MKTEMP ?= /usr/bin/mktemp -t gbuild
+ 
+@@ -120,9 +123,9 @@ $(call gb_Helper_abbreviate_dirs,\
+ 		$(if $(filter Library CppunitTest,$(TARGETTYPE)),$(gb_Library_TARGETTYPEFLAGS)) \
+ 		$(subst \d,$$,$(RPATH)) \
+ 		$(T_USE_LD) $(T_LDFLAGS) \
+-		$(patsubst lib%.dylib,-l%,$(patsubst %.$(gb_Library_UDK_MAJORVER),%,$(foreach lib,$(LINKED_LIBS),$(call gb_Library_get_filename,$(lib))))) \
++		$(patsubst lib%.a,-l%,$(patsubst lib%.dylib,-l%,$(patsubst %.$(gb_Library_UDK_MAJORVER),%,$(foreach lib,$(LINKED_LIBS),$(call gb_Library_get_filename,$(lib)))))) \
+ 		-Wl$(COMMA)-filelist$(COMMA)$${FILELIST} \
+-		$(T_LIBS) \
++		$(patsubst $(gb_LinkTarget__syslib),%,$(T_LIBS)) \
+ 		$(foreach lib,$(LINKED_STATIC_LIBS),$(call gb_StaticLibrary_get_target,$(lib))) \
+ 		-o $(1) && \
+ 	rm -f $${FILELIST} && \
+@@ -164,15 +167,18 @@ endef
+ define gb_LinkTarget__command
+ $(call gb_Output_announce,$(2),$(true),LNK,4)
+ 	$(call gb_Trace_StartRange,$(2),LNK)
+-$(if $(filter Library Bundle CppunitTest Executable,$(TARGETTYPE)),$(call gb_LinkTarget__command_dynamiclink,$(1),$(2)))
++$(if $(filter Bundle CppunitTest Executable,$(TARGETTYPE)),$(call gb_LinkTarget__command_dynamiclink,$(1),$(2)))
++$(if $(filter Library,$(TARGETTYPE)),$(if $(filter TRUE,$(DISABLE_DYNLOADING)),$(call gb_LinkTarget__command_staticlink,$(1)),$(call gb_LinkTarget__command_dynamiclink,$(1),$(2))))
+ $(if $(filter StaticLibrary,$(TARGETTYPE)),$(call gb_LinkTarget__command_staticlink,$(1)))
+ 	$(call gb_Trace_EndRange,$(2),LNK)
+ endef
+ 
++# One word per framework: static builds collect the libs of all dependencies without
++# duplicate words, which would break "-framework X" pairs.
+ define gb_LinkTarget_use_system_darwin_frameworks
+-$(call gb_LinkTarget_add_libs,$(1),$(foreach fw,$(2),-framework $(fw)))
++$(call gb_LinkTarget_add_libs,$(1),$(foreach fw,$(2),-Wl$(COMMA)-framework$(COMMA)$(fw)))
+ $(if $(call gb_LinkTarget__is_merged,$(1)),\
+-  $(call gb_LinkTarget_add_libs,$(call gb_Library_get_linktarget,merged),$(foreach fw,$(2),-framework $(fw))))
++  $(call gb_LinkTarget_add_libs,$(call gb_Library_get_linktarget,merged),$(foreach fw,$(2),-Wl$(COMMA)-framework$(COMMA)$(fw))))
+ endef
+ 
+ 
+@@ -181,12 +187,25 @@ endef
+ gb_Library_DEFS :=
+ gb_Library_TARGETTYPEFLAGS := -dynamiclib
+ gb_Bundle_TARGETTYPEFLAGS := -bundle
+-gb_Library_UDK_MAJORVER := 3
+ gb_Library_SYSPRE := lib
+ gb_Library_UNOVERPRE := $(gb_Library_SYSPRE)uno_
+-gb_Library_PLAINEXT := .dylib
+ gb_Library_PLAINEXT_FOR_BUILD := .dylib
++
++ifeq ($(DISABLE_DYNLOADING),TRUE)
++
++gb_Library_PLAINEXT := .a
++gb_Library_DLLEXT := .a
++gb_Library_VERSIONEXT :=
++
++else
++
++gb_Library_UDK_MAJORVER := 3
++gb_Library_PLAINEXT := .dylib
+ gb_Library_DLLEXT := .dylib
++gb_Library_VERSIONEXT := .$(gb_Library_UDK_MAJORVER)
++
++endif
++
+ gb_Library_RTEXT := gcc3$(gb_Library_PLAINEXT)
+ 
+ gb_Library_OOOEXT := $(gb_Library_DLLPOSTFIX)$(gb_Library_PLAINEXT)
+@@ -199,8 +218,8 @@ gb_Library_FILENAMES := \
+ 	$(foreach lib,$(gb_Library_PLAINLIBS_OOO),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_PLAINEXT)) \
+ 	$(foreach lib,$(gb_Library_PLAINLIBS_OXT),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_PLAINEXT)) \
+ 	$(foreach lib,$(gb_Library_PRIVATELIBS_URE),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_OOOEXT)) \
+-	$(foreach lib,$(gb_Library_RTVERLIBS),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_RTEXT).$(gb_Library_UDK_MAJORVER)) \
+-	$(foreach lib,$(gb_Library_UNOVERLIBS),$(lib):$(gb_Library_UNOVERPRE)$(lib)$(gb_Library_PLAINEXT).$(gb_Library_UDK_MAJORVER)) \
++	$(foreach lib,$(gb_Library_RTVERLIBS),$(lib):$(gb_Library_SYSPRE)$(lib)$(gb_Library_RTEXT)$(gb_Library_VERSIONEXT)) \
++	$(foreach lib,$(gb_Library_UNOVERLIBS),$(lib):$(gb_Library_UNOVERPRE)$(lib)$(gb_Library_PLAINEXT)$(gb_Library_VERSIONEXT)) \
+ 	$(foreach lib,$(gb_Library_EXTENSIONLIBS),$(lib):$(lib)$(gb_Library_UNOEXT)) \
+ 
+ 
+diff --git a/vcl/Library_vcl.mk b/vcl/Library_vcl.mk
+index 1452533b7..2075c1a1d 100644
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -21,7 +21,9 @@ $(eval $(call gb_Library_Library,vcl))
+ 
+ $(eval $(call gb_Library_set_componentfile,vcl,vcl/vcl.common,services))
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(DISABLE_GUI),TRUE)
++$(eval $(call gb_Library_add_componentimpl,vcl,headless))
++else ifeq ($(OS),MACOSX)
+ $(eval $(call gb_Library_add_componentimpl,vcl,macosx))
+ else ifeq ($(OS),WNT)
+ $(eval $(call gb_Library_add_componentimpl,vcl,windows))
+@@ -29,8 +31,6 @@ else ifeq ($(OS),ANDROID)
+ $(eval $(call gb_Library_add_componentimpl,vcl,android))
+ else ifeq ($(OS),iOS)
+ $(eval $(call gb_Library_add_componentimpl,vcl,ios))
+-else ifeq ($(DISABLE_GUI),TRUE)
+-$(eval $(call gb_Library_add_componentimpl,vcl,headless))
+ else
+ $(eval $(call gb_Library_add_componentimpl,vcl,unx))
+ endif
+@@ -798,7 +798,7 @@ $(eval $(call gb_Library_use_system_darwin_frameworks,vcl,\
+ endif
+ 
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_GUI),MACOSX)
+ $(eval $(call gb_Library_add_objcxxobjects,vcl,\
+     vcl/quartz/cgutils \
+     $(if $(filter SKIA,$(BUILD_TYPE)), \
+@@ -829,9 +829,10 @@ $(eval $(call gb_Library_add_nativeres,vcl,vcl/salsrc))
+ 
+ # HACK: dependency on icon themes so running unit tests don't
+ # prevent delivering these by having open file handles on WNT
++# (a tree extracted by libreoffice-slim has no icon themes)
+ $(eval $(call gb_Library_use_packages,vcl, \
+     vcl_opengl_denylist \
+-    $(if $(filter host,$(gb_Side)),postprocess_images) \
++    $(if $(and $(filter host,$(gb_Side)),$(wildcard $(SRCDIR)/icon-themes)),postprocess_images) \
+ ))
+ endif # WNT
+ 
+diff --git a/vcl/Module_vcl.mk b/vcl/Module_vcl.mk
+index ed9247d58..be3707e95 100644
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -134,7 +134,7 @@ $(eval $(call gb_Module_add_targets,vcl,\
+ ))
+ endif
+ 
+-ifeq ($(OS),MACOSX)
++ifeq ($(OS)$(DISABLE_GUI),MACOSX)
+ $(eval $(call gb_Module_add_targets,vcl,\
+     Package_osxres \
+     Library_vclplug_osx \
+diff --git a/vcl/headless/svpinst.cxx b/vcl/headless/svpinst.cxx
+index 7560f6ada..91ac41ea0 100644
+--- a/vcl/headless/svpinst.cxx
++++ b/vcl/headless/svpinst.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <sal/config.h>
++#include <config_features.h>
+ 
+ #include <mutex>
+ 
+@@ -107,7 +108,7 @@ SvpSalInstance::SvpSalInstance( std::unique_ptr<SalYieldMutex> pMutex )
+ 
+ void SvpSalInstance::AfterAppInit()
+ {
+-#if defined(MACOSX)
++#if defined(MACOSX) && HAVE_FEATURE_UI
+     SalInstance::MacStartupWorkarounds();
+ #endif
+ }
