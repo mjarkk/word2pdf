@@ -32,6 +32,7 @@ PATCHES='
 0014-bridges-aarch64-static-cache-flush bridges/source/cpp_uno/gcc3_linux_aarch64/cpp2uno.cxx
 0015-autogen-wsl-helper-arm64 autogen.sh
 0016-windows-static-build include/sal/types.h solenv/gbuild/platform/com_MSC_class.mk solenv/gbuild/platform/com_MSC_defs.mk external/argon2/ExternalPackage_argon2.mk external/argon2/ExternalProject_argon2.mk external/lcms2/ExternalProject_lcms2.mk external/libxml2/ExternalProject_libxml2.mk external/openssl/ExternalPackage_openssl.mk external/openssl/ExternalProject_openssl.mk vcl/win/app/salshl.cxx vcl/Library_vclplug_win.mk RepositoryFixes.mk
+0017-vcl-family-of-weight-names vcl/source/font/PhysicalFontCollection.cxx
 '
 
 patch_paths() {

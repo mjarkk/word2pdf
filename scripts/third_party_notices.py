@@ -25,12 +25,17 @@ REPOSITORY = "https://github.com/mjarkk/word-to-pdf-converter"
 
 # (name, its download.lst variable or its path in LibreOffice's tree, license word2pdf is
 #  distributed under, the licenses it was chosen from, files with the license terms)
-# A file is a path below the tarball's top directory (or in CORE_DIR), or (path, first, end):
-# the lines from the first one matching the regex FIRST up to the next one matching END.
+# A file is a path below the tarball's top directory (or in CORE_DIR; with "core:" in front also
+# for a tarball), or (path, first, end): the lines from the first one matching the regex FIRST
+# up to the next one matching END.
 COMPONENTS = [
     ("Argon2", "ARGON2_TARBALL", "CC0-1.0 or Apache-2.0", None, ["LICENSE"]),
     ("Boost", "BOOST_TARBALL", "BSL-1.0", None, ["LICENSE_1_0.txt"]),
     ("cairo", "CAIRO_TARBALL", "MPL-1.1", "LGPL-2.1 or MPL-1.1", ["COPYING", "COPYING-MPL-1.1"]),
+    # the tarball has no license file; the fonts' name tables say Apache-2.0
+    ("Caladea font", "FONT_CALADEA_TARBALL", "Apache-2.0", None,
+     [("core:readlicense_oo/license/license.xml", r"<h2>Caladea</h2>", r"<h2>")]),
+    ("Carlito font", "FONT_CARLITO_TARBALL", "OFL-1.1", None, ["LICENSE"]),
     ("Dragonbox", "DRAGONBOX_TARBALL", "BSL-1.0", "Apache-2.0 WITH LLVM-exception or BSL-1.0",
      ["LICENSE-Boost"]),
     ("Expat", "EXPAT_TARBALL", "MIT", None, ["COPYING"]),
@@ -47,6 +52,7 @@ COMPONENTS = [
     ("ICU data", "ICU_DATA_TARBALL", "as ICU", None, []),
     ("IANA Language Subtag Registry", "LANGTAGREG_TARBALL", "none (registry data)", None, []),
     ("libeot", "LIBEOT_TARBALL", "MPL-2.0", None, ["LICENSE", "PATENTS"]),
+    ("Liberation fonts", "FONT_LIBERATION_TARBALL", "OFL-1.1", None, ["LICENSE"]),
     ("libfixmath", "tools/source/misc/fix16.cxx", "MIT", None,
      [("tools/source/misc/fix16.cxx", r"libfixmath is Copyright", r"\*/")]),
     ("libjpeg-turbo", "LIBJPEG_TURBO_TARBALL", "IJG and BSD-3-Clause", None,
@@ -79,7 +85,7 @@ word2pdf: licenses and notices
 ==============================
 
 word2pdf is LibreOffice's Writer and PDF export built as one executable, with the libraries
-listed below linked in. It is distributed under the Mozilla Public License 2.0, like
+and fonts listed below in it. It is distributed under the Mozilla Public License 2.0, like
 LibreOffice; each library keeps its own license. Where a library offers a choice of licenses,
 the one named here is the one word2pdf is distributed under.
 
@@ -90,6 +96,7 @@ The source code of everything in the executable:
   LibreOffice     {url}, tag {tag}
   the libraries   the tarballs named below, from {mirror},
                   with the patches in LibreOffice's external/<library>/ applied
+                  (the fonts are used as they are)
 
 This software is based in part on the work of the Independent JPEG Group.
 
@@ -149,14 +156,13 @@ def license_terms(core, tarball, files):
     """[(label, text)] for the FILES of a component."""
     if not files:
         return []
-    paths = [f if isinstance(f, str) else f[0] for f in files]
-    if tarball:
-        found = tarball_files(tarball, set(paths))
-    else:
-        found = {}
-        for path in paths:
-            with open(os.path.join(core, path), "rb") as f:
-                found[path] = (path, decode(f.read()))
+    paths = {f if isinstance(f, str) else f[0] for f in files}
+    in_tarball = {p for p in paths if tarball and not p.startswith("core:")}
+    found = tarball_files(tarball, in_tarball) if in_tarball else {}
+    for path in paths - in_tarball:
+        name = path.removeprefix("core:")
+        with open(os.path.join(core, name), "rb") as f:
+            found[path] = (name, decode(f.read()))
     terms = []
     for f in files:
         name, text = found[f if isinstance(f, str) else f[0]]

@@ -7,9 +7,9 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
 # Writes one self-contained fontconfig configuration: font and cache directories, the
-# rules of fontconfig's default fonts.conf and its default-enabled conf.d files, and
-# LibreOffice's own snippets. Nothing in it includes other files, so the result can be
-# loaded from memory without reading /etc/fonts.
+# rules of fontconfig's default fonts.conf and its default-enabled conf.d files,
+# LibreOffice's own snippets and LAST_RULES. Nothing in it includes other files, so the
+# result can be loaded from memory without reading /etc/fonts.
 #
 #   make_fonts_conf.py [--os=OS] OUTPUT FONTCONFIG_SRCDIR SNIPPET...
 #
@@ -68,6 +68,15 @@ HEADER = """<?xml version="1.0"?>
 \t<cachedir>~/.fontconfig</cachedir>
 """
 
+# fontconfig 2.17 ranks the generic family (guessed from a font's name: "Noto Sans" is
+# sans-serif, "Carlito" is unknown) above the requested family, and VCL asks for "sans" or
+# "serif" with every name, so "Calibri Light" got any "... Sans" font over the Carlito its
+# aliases name. Without it in the request, matching is as in fontconfig 2.15.
+LAST_RULES = """\t<match target="pattern">
+\t\t<edit name="genericfamily" mode="delete_all"/>
+\t</match>
+"""
+
 # Elements that would make fontconfig read further files or that are set in HEADER.
 # fontconfig's files are not namespace-clean XML (they use xsi: undeclared), so this works
 # on the text instead of parsing it.
@@ -101,7 +110,7 @@ def main():
     for source in sources:
         parts.append("\t<!-- %s -->\n" % os.path.basename(source))
         parts.extend(rules(source))
-    parts.append("</fontconfig>\n")
+    parts.append(LAST_RULES + "</fontconfig>\n")
     with open(output, "w", encoding="utf-8") as f:
         f.write("".join(parts))
 

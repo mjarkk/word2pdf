@@ -3,9 +3,10 @@
 #
 #   LO_SLIM_ENGINE    podman or docker (default: podman if installed, else docker)
 #   LO_SLIM_PLATFORM  container platform, e.g. linux/amd64 to build x86-64 on Apple Silicon
-#   LO_SLIM_VOLUMES   1: keep the build directory and compiler cache in named volumes instead of
-#                     work/ (default on macOS, where they are on the Linux file system of the
-#                     container VM: much faster than a bind mount, and case-sensitive)
+#   LO_SLIM_VOLUMES   1: keep the build directory, the compiler cache and a copy of the sources in
+#                     named volumes instead of work/ and src/ (default on macOS, where they are
+#                     on the Linux file system of the container VM: much faster than a bind
+#                     mount, and case-sensitive)
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE="${LO_SLIM_ENGINE:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}"

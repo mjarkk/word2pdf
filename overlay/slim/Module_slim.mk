@@ -14,6 +14,11 @@ ifeq ($(DISABLE_DYNLOADING),TRUE)
 $(eval $(call gb_Module_add_targets,slim,\
 	CustomTarget_assets \
 	Executable_word2pdf \
+	$(if $(filter FONTCONFIG,$(BUILD_TYPE)),\
+		UnpackedTarball_font_caladea \
+		UnpackedTarball_font_carlito \
+		UnpackedTarball_font_liberation \
+	) \
 ))
 endif
 

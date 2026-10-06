@@ -15,5 +15,10 @@ ENV CCACHE_DIR=/ccache \
     CCACHE_MAXSIZE=30G \
     LC_ALL=C.UTF-8
 
-# a new named volume mounted at /build or /ccache starts as a copy of these (LO_SLIM_VOLUMES)
-RUN mkdir -p /build /ccache && chmod 1777 /build /ccache
+# a new named volume mounted at /build, /ccache or /src starts as a copy of these (LO_SLIM_VOLUMES)
+RUN mkdir -p /build /ccache /src && chmod 1777 /build /ccache /src
+
+# copies src/ into its volume (scripts/build-linux.sh). A layer of its own: changing the first
+# one would install newer compilers and make every ccache entry miss.
+RUN apt-get update && apt-get install -y --no-install-recommends rsync \
+    && rm -rf /var/lib/apt/lists/*

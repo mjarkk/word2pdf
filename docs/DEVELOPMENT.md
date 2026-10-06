@@ -18,10 +18,10 @@ word2pdf --help
 | processes | oosplash + soffice.bin (+ gpg, paperconf, ...) | one, no children |
 | state on disk | user profile, lock files | private scratch dir, removed on exit/crash/SIGTERM |
 | a hung conversion | stays around | `--timeout` (default 120 s) kills it, exit status 3 |
-| runtime files | the LibreOffice installation | none: configuration, UNO registries, fontconfig rules are compiled in; only fonts are read |
+| runtime files | the LibreOffice installation | none: configuration, UNO registries, fontconfig rules and replacement fonts are compiled in; only installed fonts are read |
 | shared libraries | ~200 | Linux: `libc`, `libm` (glibc ≥ 2.38); macOS: `libSystem`, `libc++`, CoreFoundation, Foundation |
 | per conversion (test corpus) | | 0.05–0.2 s, peak RSS 90–110 MB |
-| size | | one 103 MB executable (macOS arm64: 94 MB) |
+| size | | one executable: Linux x86-64 133 MB, arm64 106 MB; macOS arm64 102 MB |
 
 Built from LibreOffice **26.2.6.3** (pinned in `LO_VERSION`).
 
@@ -35,24 +35,26 @@ with PDFs made by a regular LibreOffice 26.2.6.3 using the same fonts and font c
 (`testdata/locale`). The Linux arm64 binary (`scripts/build-linux.sh` in Docker on Apple
 Silicon) gives:
 
-    converted 111/111, same pages 109, identical text 102, pixel-identical 86/109
+    converted 111/111, same pages 111, identical text 110, pixel-identical 99/111
     locale dates-nl.docx: ok
     locale dates-de.docx: ok
 
-Formulas and bullets differ because word2pdf does not embed LibreOffice's OpenSymbol font yet
-(`sample-docx-files-sample1.docx` gets 9 pages instead of 8).
+The references are made by LibreOffice on Linux, which turns a face name like "Calibri Light"
+into fontconfig's generic fallback; word2pdf uses Carlito for it, as LibreOffice on Windows and
+macOS does (patch 17), so two documents with Calibri Light headings are not pixel-identical.
 
 The native macOS build (Apple Silicon) gives, with `scripts/test-macos.sh`, which points it at
 the fonts and dictionaries of the test container so the same references apply:
 
-    converted 111/111, same pages 109, identical text 102, pixel-identical 79/109
+    converted 111/111, same pages 110, identical text 109, pixel-identical 90/110
     locale dates-nl.docx: ok
     locale dates-de.docx: ok
 
 96 of the 111 documents come out with identical results on both, the others differ by glyphs
 placed about a pixel apart (also against references made by LibreOffice for aarch64), from
-floating-point rounding. A conversion takes 0.15 s (median; max 0.30 s), peak RSS 70 MB
-(median), and 0.2 s with the 2700 fonts of a stock Mac.
+floating-point rounding; on macOS `sample-docx-files-sample1.docx` gets a ninth page. A
+conversion takes 0.17 s (median; max 0.45 s), peak RSS 78 MB (median), and 0.2 s with the 2700
+fonts of a stock Mac.
 
 ## How it works
 
@@ -74,6 +76,19 @@ WebAssembly and fuzzing builds:
   * `CustomTarget_assets.mk` compiles the runtime files (configuration `*.xcd`, UNO type and
     service registries, a few share/ files, the fontconfig configuration) into the executable;
     `LO_SLIM_TRACE_FILES=FILE` lists which ones a run looks for.
+  * Fonts are compiled in too (6.4 MB): the metric-compatible replacements LibreOffice
+    bundles, Carlito, Caladea and Liberation Sans, Serif and Mono, for Calibri, Cambria, Arial,
+    Times New Roman and Courier New; and LibreOffice's OpenSymbol, for symbol fonts that are not
+    installed (Word's bullets are in Symbol) and formulas. Not Liberation Sans Narrow, which is
+    GPL-licensed. fontconfig and FreeType read fonts from files, so each run copies them into
+    anonymous in-memory files (`memfd_create`; on macOS unlinked files in the scratch
+    directory) and registers them by LibreOffice's `/:FD:/<descriptor>` names, which its
+    FreeType, cairo and PDF font subsetting already understand. That takes about 10 ms per
+    conversion.
+  * `make_fonts_conf.py` ends the fontconfig configuration with a rule that removes the
+    generic family from requests. fontconfig 2.17 ranks it above the requested family, and
+    VCL adds "sans" or "serif" to every request, so any "... Sans" font won over an alias
+    like Calibri → Carlito.
   * `assets/share/registry/word2pdf.xcd` holds the baked-in defaults: PDF settings
     (no tagged PDF, no form fields), no lock files, and a fixed locale (en-US), which
     also stops LibreOffice from running `paperconf` to guess the paper size.
@@ -106,6 +121,13 @@ WebAssembly and fuzzing builds:
       nothing in a static executable (every Linux arm64 conversion crashed).
   15. `autogen.sh`: recognises Git Bash on Windows ARM64 (`clangarm64` on the `PATH`) for the
       WSL-helper build, as configure already does.
+  16. Windows (in progress, see [docs/PORTING.md](PORTING.md)): MSVC builds with static
+      libraries instead of DLLs, and the bundled libraries built static.
+  17. `vcl`: a font named after one weight of its family ("Calibri Light", "Segoe UI
+      Semibold") that is not installed becomes that family, or its metric-compatible
+      replacement (Carlito), in that weight. On Linux LibreOffice asked fontconfig first,
+      which never knows these names and answers with its generic fallback; LibreOffice on
+      Windows and macOS already got there.
 
 ## Building
 
@@ -132,6 +154,14 @@ optimisation does not help on top of that (`--enable-lto` gives 118 MB with `-Os
 
 The first build of a build directory takes ~25 minutes on 16 cores; after that builds are
 incremental: changing one source file and relinking takes ~10 s.
+
+On a Mac the container's build directory, compiler cache (ccache) and a copy of `src/` are
+Docker volumes (`lo-slim-build-linux-<arch>`, `lo-slim-ccache`, `lo-slim-src`): through a bind
+mount of the Mac's file system, reading the sources is 20–30 times slower, which ccache hits feel
+most, since each one hashes every header the file includes. `build-linux.sh` first brings the
+copy up to date with rsync (a few seconds), keeping modification times, so only what changed is
+rebuilt. A change to a header nearly everything includes (`include/sal/types.h`) still
+recompiles everything once per architecture; x86-64 runs under Rosetta at about half speed.
 
 macOS, natively with Xcode and a few Homebrew tools (macOS's own make and gperf are too old):
 

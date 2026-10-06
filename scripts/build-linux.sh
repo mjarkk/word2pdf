@@ -4,8 +4,9 @@
 #
 #   scripts/build-linux.sh [SRC_DIR] [BUILD_DIR]
 #
-# SRC_DIR defaults to src/ (made by scripts/extract.sh), BUILD_DIR to work/build-linux-<arch>
-# (or a named volume, see LO_SLIM_VOLUMES in scripts/lib.sh); the stripped binary goes to
+# SRC_DIR defaults to src/ (made by scripts/extract.sh, and copied into a named volume with
+# LO_SLIM_VOLUMES), BUILD_DIR to work/build-linux-<arch> (or a named volume, see
+# LO_SLIM_VOLUMES in scripts/lib.sh); the stripped binary goes to
 # out/word2pdf-linux-<arch>, arch arm64 or x86_64 ($LO_SLIM_OUT instead of out/). Inside the
 # container the sources are always /src and the build directory /build, so the executable does
 # not depend on where they are on the host, and ccache shares compiled objects between build
@@ -42,8 +43,18 @@ OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out}")"
 BINARY="$(binary_name linux "$ARCH")"
 echo "building $SRC in $BUILD for $ARCH"
 
+# Every compile reads hundreds of headers, and ccache hashes them: from a bind mount of src/
+# that is 20-30 times slower than from a volume. rsync keeps the modification times, so only
+# what changed in src/ is rebuilt.
+SRC_MOUNT="$SRC"
+if use_volumes; then
+    SRC_MOUNT=lo-slim-src
+    container_run -v "$SRC:/host-src:ro" -v "$SRC_MOUNT:/src" lo-slim-build \
+        rsync -rltE --omit-dir-times --delete /host-src/ /src/
+fi
+
 container_run \
-    -v "$SRC:/src" -v "$BUILD:/build" -v "$CCACHE:/ccache" -v "$TARBALLS:/tarballs" -v "$OUT:/out" \
+    -v "$SRC_MOUNT:/src" -v "$BUILD:/build" -v "$CCACHE:/ccache" -v "$TARBALLS:/tarballs" -v "$OUT:/out" \
     -v "$ROOT/scripts:/scripts:ro" \
     -e SOURCE_DATE_EPOCH=1767225600 -e BINARY="$BINARY" \
     -e LO_SLIM_CONFIGURE_ARGS="${LO_SLIM_CONFIGURE_ARGS:-}" \

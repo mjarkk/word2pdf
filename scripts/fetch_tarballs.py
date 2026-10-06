@@ -3,8 +3,9 @@
 
     fetch_tarballs.py SRC_DIR TARBALL_DIR
 
-The tarballs are the ones named by the UnpackedTarball makefiles of the external/ modules in
-SRC_DIR; file names and SHA-256 sums come from SRC_DIR/download.lst. Existing files are
+The tarballs are the ones named by the UnpackedTarball makefiles of the external/ modules and
+of slim/ (the fonts) in SRC_DIR, and the files slim/ embeds straight from the tarball directory
+(OpenSymbol); file names and SHA-256 sums come from SRC_DIR/download.lst. Existing files are
 checked, missing ones downloaded from LibreOffice's mirror. The build runs with
 --disable-fetch-external, so nothing else is downloaded.
 """
@@ -17,6 +18,8 @@ import sys
 import urllib.request
 
 MIRROR = "https://dev-www.libreoffice.org/src/"
+# where LibreOffice's Makefile.fetch gets its prebuilt files (*_TTF) from
+EXTERN_MIRROR = "https://dev-www.libreoffice.org/extern/"
 
 
 def make_values(download_lst, names):
@@ -37,11 +40,11 @@ def sha256(path):
     return h.hexdigest()
 
 
-def fetch(dest, tarball, expected):
+def fetch(dest, tarball, expected, mirror=MIRROR):
     path = os.path.join(dest, tarball)
     if not os.path.exists(path):
         print("downloading", tarball, flush=True)
-        urllib.request.urlretrieve(MIRROR + tarball, path + ".part")
+        urllib.request.urlretrieve(mirror + tarball, path + ".part")
         os.rename(path + ".part", path)
     if sha256(path) != expected:
         os.remove(path)
@@ -57,22 +60,28 @@ def main():
 
     variables = set()
     external = os.path.join(src, "external")
-    for module in sorted(os.listdir(external)):
-        directory = os.path.join(external, module)
+    slim = os.path.join(src, "slim")
+    directories = [os.path.join(external, module) for module in sorted(os.listdir(external))]
+    for directory in directories + [slim]:
         if not os.path.isdir(directory):
             continue
         for name in os.listdir(directory):
-            if name.startswith("UnpackedTarball_") and name.endswith(".mk"):
-                with open(os.path.join(directory, name)) as f:
-                    text = f.read()
+            if not name.endswith(".mk"):
+                continue
+            with open(os.path.join(directory, name)) as f:
+                text = f.read()
+            if name.startswith("UnpackedTarball_"):
                 variables.update(re.findall(r"gb_UnpackedTarball_set_tarball,[^,]+,\$\((\w+)\)", text))
                 # further archives a tarball's unpacking extracts from (ICU's data on Windows)
                 variables.update(re.findall(r"\$\(gb_UnpackedTarget_TARFILE_LOCATION\)/\$\((\w+)\)", text))
+            if directory == slim:
+                variables.update(re.findall(r"\$\(TARFILE_LOCATION\)/\$\((\w+)\)", text))
 
     sums = {v: v.rsplit("_", 1)[0] + "_SHA256SUM" for v in variables}
     values = make_values(os.path.join(src, "download.lst"), sorted(variables) + sorted(sums.values()))
     for variable in sorted(variables):
-        fetch(dest, values[variable], values[sums[variable]])
+        mirror = EXTERN_MIRROR if variable.endswith("_TTF") else MIRROR
+        fetch(dest, values[variable], values[sums[variable]], mirror)
     print("%d tarballs in %s" % (len(variables), dest))
 
 

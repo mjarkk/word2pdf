@@ -269,10 +269,10 @@ index fb6922a2e..7957e1343 100644
      }
  #endif
 diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
-index ffd746efa..cc8f86692 100644
+index ffd746efa..12602d254 100644
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
-@@ -324,13 +324,14 @@ $(eval $(call gb_SdiTarget_set_include,sfx2/sdi/sfxslots,\
+@@ -324,16 +324,21 @@ $(eval $(call gb_SdiTarget_set_include,sfx2/sdi/sfxslots,\
      -I$(SRCDIR)/sfx2/sdi \
  ))
  
@@ -284,10 +284,16 @@ index ffd746efa..cc8f86692 100644
  ))
  endif
  
--ifeq ($(OS),MACOSX)
-+ifeq ($(OS)$(DISABLE_GUI),MACOSX)
++# also without the GUI: sfxhelp.cxx has Objective-C on macOS
+ ifeq ($(OS),MACOSX)
  $(eval $(call gb_Library_add_cxxflags,sfx,\
      $(gb_OBJCXXFLAGS) \
+ ))
++endif
++
++ifeq ($(OS)$(DISABLE_GUI),MACOSX)
+ $(eval $(call gb_Library_add_objcxxobjects,sfx,\
+     sfx2/source/appl/shutdowniconaqua \
  ))
 diff --git a/sfx2/source/appl/shutdownicon.cxx b/sfx2/source/appl/shutdownicon.cxx
 index cd21d485e..6a6d6bfae 100644

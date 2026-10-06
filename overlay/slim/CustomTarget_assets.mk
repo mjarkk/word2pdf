@@ -85,6 +85,25 @@ $(slim_assets_DIR)/fonts.conf : \
 		$(gb_UnpackedTarball_workdir)/fontconfig \
 		$(SRCDIR)/extras/source/truetype/symbol/fc_local.snippet \
 		$(SRCDIR)/postprocess/fontconfig/fc_local.snippet
+
+# The metric-compatible replacements for Calibri, Cambria, Arial, Times New Roman and Courier
+# New that LibreOffice bundles, so documents keep their layout without them installed; word2pdf
+# hands everything below fonts/truetype/ to fontconfig from memory. Not Liberation Sans Narrow:
+# it is GPL-licensed.
+slim_assets_FONTS := $(foreach style,Regular Bold Italic BoldItalic,\
+	font_caladea/Caladea-$(style).ttf \
+	font_carlito/Carlito-$(style).ttf \
+	$(foreach family,Mono Sans Serif,font_liberation/Liberation$(family)-$(style).ttf))
+
+slim_assets_FILES += $(foreach font,$(slim_assets_FONTS),\
+	$(LIBO_SHARE_FOLDER)/fonts/truetype/$(notdir $(font))=$(gb_UnpackedTarball_workdir)/$(font))
+
+# LibreOffice's own font, for symbol fonts that are not installed (Word's bullets are in Symbol),
+# and formulas. Prebuilt: configure has --disable-build-opensymbol.
+slim_assets_FILES += $(LIBO_SHARE_FOLDER)/fonts/truetype/opens___.ttf=$(TARFILE_LOCATION)/$(OPENSYMBOL_TTF)
+
+$(foreach font,$(slim_assets_FONTS),\
+	$(eval $(call gb_UnpackedTarball_mark_output_file,$(patsubst %/,%,$(dir $(font))),$(notdir $(font)))))
 endif
 
 $(call gb_CustomTarget_get_target,slim/assets) : $(slim_assets_DIR)/assets.cxx

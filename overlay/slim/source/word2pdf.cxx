@@ -42,12 +42,16 @@
 #include <prewin.h>
 #include <postwin.h>
 #else
+#include <fcntl.h>
 #include <signal.h>
 #include <unistd.h>
 #endif
 
 #if USE_HEADLESS_CODE
 #include <fontconfig/fontconfig.h>
+#ifdef __linux__
+#include <sys/mman.h>
+#endif
 #endif
 
 #include <com/sun/star/beans/PropertyValue.hpp>
@@ -636,6 +640,57 @@ void setupFonts(const Options& rOptions)
 #endif
 }
 
+#if USE_HEADLESS_CODE
+// A descriptor of an anonymous file holding rFile, which ends with the process.
+int openMemoryFile(const lo_embedded_file& rFile, const Scratch& rScratch)
+{
+#ifdef __linux__
+    (void)rScratch;
+    int nFd = memfd_create("word2pdf-font", MFD_CLOEXEC);
+#else
+    std::string aPath = toUtf8(rScratch.path() / "font-XXXXXX");
+    int nFd = mkostemp(aPath.data(), O_CLOEXEC);
+    if (nFd != -1)
+        unlink(aPath.c_str());
+#endif
+    if (nFd == -1)
+        throw std::runtime_error(std::string("cannot load the embedded font ") + rFile.path);
+    for (size_t nDone = 0; nDone < rFile.size;)
+    {
+        ssize_t n = write(nFd, rFile.data + nDone, rFile.size - nDone);
+        if (n == -1 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            throw std::runtime_error(std::string("cannot load the embedded font ") + rFile.path);
+        nDone += static_cast<size_t>(n);
+    }
+    return nFd;
+}
+#endif
+
+// Only after setupFonts: without a current configuration fontconfig would load the system's.
+// VCL prefers application fonts over installed ones of the same version, as it does
+// LibreOffice's bundled fonts.
+void addEmbeddedFonts(const Scratch& rScratch)
+{
+#if USE_HEADLESS_CODE
+    constexpr std::string_view aFontDir = LIBO_SHARE_FOLDER "/fonts/truetype/";
+    for (size_t i = 0; i < slim_assets_count; ++i)
+    {
+        if (!std::string_view(slim_assets[i].path).starts_with(aFontDir))
+            continue;
+        // LibreOffice's name for an open descriptor; its FreeType, cairo and font subsetting
+        // read the font through it
+        std::string aName = "/:FD:/" + std::to_string(openMemoryFile(slim_assets[i], rScratch));
+        if (!FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8*>(aName.c_str())))
+            throw std::runtime_error(std::string("cannot load the embedded font ")
+                                     + slim_assets[i].path);
+    }
+#else
+    (void)rScratch;
+#endif
+}
+
 void readAll(std::istream& rIn, const std::filesystem::path& rTo)
 {
     std::ofstream aOut(rTo, std::ios::binary);
@@ -807,6 +862,7 @@ int run(int argc, char** argv)
             throw std::runtime_error("no such file " + aOptions.input);
 
         setupFonts(aOptions);
+        addEmbeddedFonts(aScratch);
         initOffice(aOptions, aScratch);
 
         std::filesystem::path aPdf = aScratch.path() / "output.pdf";

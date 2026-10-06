@@ -1,0 +1,96 @@
+diff --git a/vcl/source/font/PhysicalFontCollection.cxx b/vcl/source/font/PhysicalFontCollection.cxx
+index 11301ac80..275533eba 100644
+--- a/vcl/source/font/PhysicalFontCollection.cxx
++++ b/vcl/source/font/PhysicalFontCollection.cxx
+@@ -963,6 +963,49 @@ static bool FindMetricCompatibleFont_impl(FontSelectPattern& rFontSelData)
+     return false;
+ }
+ 
++// Only weights: the width names that fontconfig has aliases for ("Arial Narrow", "Helvetica
++// Narrow") are metric-compatible with other narrow families, not with the plain ones.
++constexpr std::pair<std::u16string_view, FontWeight> aWeightWords[] =
++{
++    { u"Thin",       WEIGHT_THIN },
++    { u"Hairline",   WEIGHT_THIN },
++    { u"ExtraLight", WEIGHT_ULTRALIGHT },
++    { u"UltraLight", WEIGHT_ULTRALIGHT },
++    { u"Light",      WEIGHT_LIGHT },
++    { u"SemiLight",  WEIGHT_SEMILIGHT },
++    { u"DemiLight",  WEIGHT_SEMILIGHT },
++    { u"Book",       WEIGHT_NORMAL },
++    { u"Regular",    WEIGHT_NORMAL },
++    { u"Medium",     WEIGHT_MEDIUM },
++    { u"SemiBold",   WEIGHT_SEMIBOLD },
++    { u"DemiBold",   WEIGHT_SEMIBOLD },
++    { u"Demi",       WEIGHT_SEMIBOLD },
++    { u"Bold",       WEIGHT_BOLD },
++    { u"ExtraBold",  WEIGHT_ULTRABOLD },
++    { u"UltraBold",  WEIGHT_ULTRABOLD },
++    { u"Black",      WEIGHT_BLACK },
++    { u"Heavy",      WEIGHT_BLACK },
++    { u"ExtraBlack", WEIGHT_BLACK },
++    { u"UltraBlack", WEIGHT_BLACK },
++};
++
++// "Calibri Light" -> "Calibri", WEIGHT_LIGHT. A weight that is already set (bold text in
++// Calibri Light) is kept.
++static bool StripWeightWord(OUString& rName, FontWeight& rWeight)
++{
++    for (const auto& [word, weight] : aWeightWords)
++    {
++        OUString aRest;
++        if (!rName.endsWithIgnoreAsciiCase(word, &aRest) || !aRest.endsWith(u" "))
++            continue;
++        rName = aRest.trim();
++        if (rWeight == WEIGHT_DONTKNOW || rWeight == WEIGHT_NORMAL)
++            rWeight = weight;
++        return true;
++    }
++    return false;
++}
++
+ PhysicalFontFamily* PhysicalFontCollection::FindFontFamily(FontSelectPattern& rFSD) const
+ {
+     // give up if no fonts are available
+@@ -994,6 +1037,31 @@ PhysicalFontFamily* PhysicalFontCollection::FindFontFamily(FontSelectPattern& rF
+         return nullptr;
+     };
+ 
++    // A face named like a family ("Calibri Light") that is not installed: its family, or the
++    // metric-compatible replacement of that, in the face's weight. Asked before the prematch
++    // hook, because fontconfig always answers with some font, usually an unrelated fallback.
++    auto FindFamilyOfWeightName = [this, &FindMetricCompatibleFont](
++        FontSelectPattern& rFontSelData, const OUString& rName) -> PhysicalFontFamily*
++    {
++        OUString aName = rName;
++        FontWeight eWeight = rFontSelData.GetWeight();
++        const OUString aSearchName = rFontSelData.maSearchName;
++        while (StripWeightWord(aName, eWeight))
++        {
++            rFontSelData.maSearchName = GetEnglishSearchFontName(aName);
++            PhysicalFontFamily* pFound = ImplFindFontFamilyBySearchName(rFontSelData.maSearchName);
++            if (!pFound)
++                pFound = FindMetricCompatibleFont(rFontSelData);
++            if (pFound)
++            {
++                rFontSelData.SetWeight(eWeight);
++                return pFound;
++            }
++        }
++        rFontSelData.maSearchName = aSearchName;
++        return nullptr;
++    };
++
+     bool bMultiToken = false;
+     sal_Int32 nTokenPos = 0;
+     for(;;)
+@@ -1053,6 +1121,9 @@ PhysicalFontFamily* PhysicalFontCollection::FindFontFamily(FontSelectPattern& rF
+         if (PhysicalFontFamily* pFoundData = FindMetricCompatibleFont(rFSD))
+             return pFoundData;
+ 
++        if (PhysicalFontFamily* pFoundData = FindFamilyOfWeightName(rFSD, aBaseFontName))
++            return pFoundData;
++
+         // some systems provide special customization
+         // e.g. they suggest "serif" as UI-font, but this name cannot be used directly
+         //      because the system wants to map it to another font first, e.g. "Helvetica"
