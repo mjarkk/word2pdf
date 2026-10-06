@@ -39,7 +39,7 @@ word2pdf --update-font-cache   # once, e.g. in your Dockerfile; otherwise every 
 - `hyphen-*`: automatic hyphenation, one package per document language.
 - **macOS**: `brew install --cask font-liberation font-carlito font-caladea`. Hyphenation dictionaries (`hyph_*.dic`) go in `/usr/local/share/hyphen` or `$DICPATH`.
 
-Note that when trying to convert random word document that you have no control over and want them to have the same style as in MS Word you will likely need to install the following fonts:
+If you ever have a layout issue it's most likely because you are missing one of the fonts listed below but most of these are proprietary and may not be free to redistribute:
 
 | Font             | License                                                 |
 | ---------------- | ------------------------------------------------------- |
