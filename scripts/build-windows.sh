@@ -5,7 +5,7 @@
 #   scripts/build-windows.sh [SRC_DIR] [BUILD_DIR]
 #
 # SRC_DIR defaults to src/ (made by scripts/extract.sh), BUILD_DIR to work/build-windows-<arch>;
-# the executable goes to out/windows-<arch>/word2pdf.exe (or $LO_SLIM_OUT).
+# the executable goes to out/word2pdf-windows-<arch>.exe ($LO_SLIM_OUT instead of out/).
 #
 # Needs what scripts/setup-windows.ps1 installs. As in LibreOffice's own Windows builds, autogen.sh
 # and configure run in WSL, and make and Visual Studio natively.
@@ -41,7 +41,8 @@ esac
 SRC="$(absdir "${1:-$ROOT/src}")"
 BUILD="$(absdir "${2:-$ROOT/work/build-windows-$ARCH}")"
 TARBALLS="$(absdir "${LO_SLIM_TARBALLS:-$ROOT/work/tarballs}")"
-OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out/windows-$ARCH}")"
+OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out}")"
+BINARY="$(binary_name windows "$ARCH").exe"
 echo "building $SRC in $BUILD for $ARCH"
 
 wsl_path() {
@@ -78,5 +79,5 @@ if [ ! -f config_host.mk ] || [ "$SRC/distro-configs/LibreOfficeSlim.conf" -nt c
 fi
 # only the slim module and what it depends on, not every target of every module
 make slim.allbuild ${LO_SLIM_MAKE_ARGS:-}
-cp instdir/program/word2pdf.exe "$OUT/word2pdf.exe"
-ls -l "$OUT/word2pdf.exe"
+cp instdir/program/word2pdf.exe "$OUT/$BINARY"
+ls -l "$OUT/$BINARY"

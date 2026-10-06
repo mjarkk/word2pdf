@@ -5,8 +5,7 @@
 #   scripts/build-macos.sh [SRC_DIR] [BUILD_DIR]
 #
 # SRC_DIR defaults to src/ (made by scripts/extract.sh), BUILD_DIR to work/build-macos-<arch>;
-# the stripped binary goes to out/macos-<arch>/word2pdf (or $LO_SLIM_OUT), next to a VERSION file
-# with the LibreOffice version it is built on.
+# the stripped binary goes to out/word2pdf-macos-<arch> ($LO_SLIM_OUT instead of out/).
 #
 # Needs Xcode and some Homebrew packages (macOS's make and gperf are too old):
 #   brew install make gperf ninja cmake autoconf automake pkgconf
@@ -52,7 +51,8 @@ ARCH="$(uname -m)"
 SRC="$(absdir "${1:-$ROOT/src}")"
 BUILD="$(absdir "${2:-$ROOT/work/build-macos-$ARCH}")"
 TARBALLS="$(absdir "${LO_SLIM_TARBALLS:-$ROOT/work/tarballs}")"
-OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out/macos-$ARCH}")"
+OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out}")"
+BINARY="$(binary_name macos "$ARCH")"
 echo "building $SRC in $BUILD for $ARCH"
 
 export SOURCE_DATE_EPOCH=1767225600
@@ -68,7 +68,5 @@ if [ ! -f config_host.mk ] || [ "$SRC/distro-configs/LibreOfficeSlim.conf" -nt c
 fi
 # only the slim module and what it depends on, not every target of every module
 make slim.allbuild ${LO_SLIM_MAKE_ARGS:-}
-strip -o "$OUT/word2pdf" instdir/*.app/Contents/MacOS/word2pdf
-"$OUT/word2pdf" --version | sed 's/^word2pdf, //' > "$OUT/VERSION"
-ls -l "$OUT/word2pdf"
-cat "$OUT/VERSION"
+strip -o "$OUT/$BINARY" instdir/*.app/Contents/MacOS/word2pdf
+ls -l "$OUT/$BINARY"

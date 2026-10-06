@@ -5,13 +5,13 @@
 #
 #   scripts/test.sh [WORD2PDF]
 #
-# WORD2PDF defaults to out/linux-<arch>/word2pdf for the container's architecture. The PDFs and
+# WORD2PDF defaults to out/word2pdf-linux-<arch> for the container's architecture. The PDFs and
 # report.json end up in work/test.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 build_image lo-slim-test "$ROOT/build/test" test
-BIN="${1:-$ROOT/out/linux-$(container_run lo-slim-test uname -m)/word2pdf}"
+BIN="${1:-$ROOT/out/$(binary_name linux "$(container_run lo-slim-test uname -m)")}"
 BIN="$(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 rm -rf "$ROOT/work/test"
 OUT="$(absdir "$ROOT/work/test")"

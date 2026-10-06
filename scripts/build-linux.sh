@@ -6,10 +6,10 @@
 #
 # SRC_DIR defaults to src/ (made by scripts/extract.sh), BUILD_DIR to work/build-linux-<arch>
 # (or a named volume, see LO_SLIM_VOLUMES in scripts/lib.sh); the stripped binary goes to
-# out/linux-<arch>/word2pdf (or $LO_SLIM_OUT), next to a VERSION file with the LibreOffice
-# version it is built on. Inside the container the sources are always /src and the build
-# directory /build, so the executable does not depend on where they are on the host, and ccache
-# shares compiled objects between build directories.
+# out/word2pdf-linux-<arch>, arch arm64 or x86_64 ($LO_SLIM_OUT instead of out/). Inside the
+# container the sources are always /src and the build directory /build, so the executable does
+# not depend on where they are on the host, and ccache shares compiled objects between build
+# directories.
 #
 # Works with podman or docker; on Apple Silicon LO_SLIM_PLATFORM=linux/amd64 builds the x86-64
 # binary.
@@ -38,13 +38,14 @@ else
     CCACHE="$(absdir "$ROOT/work/ccache")"
 fi
 TARBALLS="$(absdir "${LO_SLIM_TARBALLS:-$ROOT/work/tarballs}")"
-OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out/linux-$ARCH}")"
+OUT="$(absdir "${LO_SLIM_OUT:-$ROOT/out}")"
+BINARY="$(binary_name linux "$ARCH")"
 echo "building $SRC in $BUILD for $ARCH"
 
 container_run \
     -v "$SRC:/src" -v "$BUILD:/build" -v "$CCACHE:/ccache" -v "$TARBALLS:/tarballs" -v "$OUT:/out" \
     -v "$ROOT/scripts:/scripts:ro" \
-    -e SOURCE_DATE_EPOCH=1767225600 \
+    -e SOURCE_DATE_EPOCH=1767225600 -e BINARY="$BINARY" \
     -e LO_SLIM_CONFIGURE_ARGS="${LO_SLIM_CONFIGURE_ARGS:-}" \
     -e LO_SLIM_MAKE_ARGS="${LO_SLIM_MAKE_ARGS:-}" \
     -w /build lo-slim-build bash -euo pipefail -c '
@@ -57,8 +58,6 @@ container_run \
         fi
         # only the slim module and what it depends on, not every target of every module
         make slim.allbuild $LO_SLIM_MAKE_ARGS
-        strip -o /out/word2pdf instdir/program/word2pdf
-        /out/word2pdf --version | sed "s/^word2pdf, //" > /out/VERSION
+        strip -o "/out/$BINARY" instdir/program/word2pdf
     '
-ls -l "$OUT/word2pdf"
-cat "$OUT/VERSION"
+ls -l "$OUT/$BINARY"

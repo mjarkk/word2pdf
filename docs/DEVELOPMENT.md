@@ -114,7 +114,7 @@ Linux, inside a pinned Debian container (`build/Containerfile`, podman):
 ```sh
 scripts/fetch.sh          # clone LibreOffice at the pinned tag into repos/core (once)
 scripts/extract.sh        # src/: only the modules in modules.txt + patches + overlay
-scripts/build-linux.sh    # configure and build src/ -> out/linux-x86_64/word2pdf
+scripts/build-linux.sh    # configure and build src/ -> out/word2pdf-linux-x86_64
 ```
 
 `src/` is a standalone source tree (~330 MB instead of ~1.8 GB, its own git repository with a
@@ -139,7 +139,7 @@ macOS, natively with Xcode and a few Homebrew tools (macOS's own make and gperf 
 brew install make gperf ninja cmake autoconf automake pkgconf
 scripts/fetch.sh
 scripts/extract.sh
-scripts/build-macos.sh    # -> out/macos-arm64/word2pdf (work/build-macos-arm64)
+scripts/build-macos.sh    # -> out/word2pdf-macos-arm64 (work/build-macos-arm64)
 scripts/test-macos.sh     # corpus + locale checks; needs Docker or podman for the test
                           # fonts, and poppler and Pillow
 ```
@@ -150,13 +150,17 @@ tools and the Homebrew tools it needs on the `PATH`, so nothing links against Ho
 libraries. Unlike the container build, the result is not independent of the directories it was
 built in (some messages carry source paths).
 
-On a Mac, `scripts/build-all.sh` builds all three binaries: first for macOS, then Linux arm64,
-then Linux x86-64 in the container, under emulation and so the slowest. Each binary goes to its own
-`out/` directory and each log to `work/build-<target>.log`. A failed build does not stop the
-others.
+On a Mac, `scripts/build-all.sh` builds all three binaries: first for macOS, then Linux x86-64
+in the container (under emulation and so the slowest), then Linux arm64. Each binary goes to
+`out/word2pdf-<os>-<arch>` and each log to `work/build-<target>.log`. A failed build does not stop
+the others.
 
-Every build script puts a `VERSION` file next to the binary. It holds the LibreOffice version
-the binary was built on, as `word2pdf --version` prints it (`LibreOffice 26.2.6.3`).
+Once all three builds succeed, `build-all.sh` writes `out/VERSION`, the name to release them under:
+`LibreOffice-<version>-B<n>`. `<version>` is the LibreOffice version in `LO_VERSION`. `<n>` starts
+at 1 and is one more than the highest number ending an existing GitHub release tag for that
+LibreOffice version (drafts included), so several word2pdf releases can be built on the same
+LibreOffice. `scripts/next-version.sh` prints it on its own; both need the GitHub CLI (`gh`),
+logged in.
 
 Windows (ARM64 or x64), natively with Visual Studio 2022, set up the way LibreOffice's own
 Windows builds are: autogen.sh and configure run in WSL, everything else natively from Git Bash.
@@ -173,7 +177,7 @@ powershell -ExecutionPolicy Bypass -File scripts\setup-windows.ps1
 # Git Bash; keep the checkout at a short path such as C:\word2pdf (Windows path length limits)
 scripts/fetch.sh
 scripts/extract.sh
-scripts/build-windows.sh  # -> out/windows-aarch64/word2pdf.exe (work/build-windows-aarch64)
+scripts/build-windows.sh  # -> out/word2pdf-windows-arm64.exe (work/build-windows-aarch64)
 ```
 
 Builds are reproducible: the same `src/` built in two different directories gives a

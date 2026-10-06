@@ -52,6 +52,14 @@ build_image() {
     "$ENGINE" "${args[@]}" "$@" "$dir" >/dev/null
 }
 
+# file name in out/ for an OS and a uname -m architecture:
+#   binary_name linux aarch64 -> word2pdf-linux-arm64
+binary_name() {
+    local arch="$2"
+    [ "$arch" != aarch64 ] || arch=arm64
+    echo "word2pdf-$1-$arch"
+}
+
 # the architecture the containers run, as uname -m says it (x86_64, aarch64)
 container_arch() {
     container_run lo-slim-build uname -m

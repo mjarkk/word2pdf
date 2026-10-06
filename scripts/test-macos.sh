@@ -8,13 +8,13 @@
 #
 #   scripts/test-macos.sh [WORD2PDF]
 #
-# WORD2PDF defaults to out/macos-<arch>/word2pdf. Needs poppler and Pillow
+# WORD2PDF defaults to out/word2pdf-macos-<arch>. Needs poppler and Pillow
 # (brew install poppler; python3 -m pip install pillow). The PDFs and report.json end up in
 # work/test-macos.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-BIN="${1:-$ROOT/out/macos-$(uname -m)/word2pdf}"
+BIN="${1:-$ROOT/out/$(binary_name macos "$(uname -m)")}"
 BIN="$(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
 ENV="$ROOT/work/test-env"
 
