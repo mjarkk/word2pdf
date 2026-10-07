@@ -1,4 +1,4 @@
-# `word2pdf` (WIP)
+# `word2pdf`
 
 **Word to PDF converter that works and no more**.
 
