@@ -9,14 +9,11 @@ word2pdf input.docx output.pdf
 word2pdf - - < input.docx > output.pdf   # or stream it
 ```
 
-- **Real LibreOffice output**: the same layout engine and PDF export, not an approximation.
-- **One file**: no LibreOffice install, no config, no runtime files. Linux needs only glibc 2.38+.
-- **Word's standard fonts covered**: same-width stand-ins for Calibri, Cambria, Arial, Times New Roman and Courier New are built in, so documents keep their layout without installing anything.
-- **Fast**: 0.05–0.5 s per document, ~100 MB of memory.
-- **Safe in parallel**: no shared profile, no lock files, no leftover processes.
-- **Never hangs**: `--timeout` (default 120 s) stops a stuck conversion.
-- **Leaves nothing behind**: scratch files are removed on success, failure, crash or SIGTERM. The PDF only appears once it is complete.
-- **docx, doc, rtf and odt**: charts, formulas, SmartArt, tracked changes and every language, tested against 111 documents.
+- **One binary**
+- **Fast**
+- **Safe in parallel**
+- **Leaves nothing behind**
+- **docx, doc, rtf and odt**
 - **Linux** (x86-64, arm64) and **macOS** (Apple Silicon).
 
 ## Get it
