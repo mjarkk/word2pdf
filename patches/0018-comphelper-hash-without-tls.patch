@@ -1,0 +1,81 @@
+diff --git a/comphelper/source/misc/hash.cxx b/comphelper/source/misc/hash.cxx
+index 513372bf8..308ad7c3a 100644
+--- a/comphelper/source/misc/hash.cxx
++++ b/comphelper/source/misc/hash.cxx
+@@ -25,6 +25,9 @@
+ #elif USE_TLS_OPENSSL
+ #include <openssl/evp.h>
+ #include <openssl/sha.h>
++#else
++#include <algorithm>
++#include <rtl/digest.h>
+ #endif // USE_TLS_OPENSSL
+ 
+ namespace comphelper {
+@@ -85,6 +88,22 @@ struct HashImpl
+ 
+         return nullptr;
+     }
++#else
++    rtlDigest mpContext = nullptr;
++
++    rtlDigestAlgorithm getSalAlgorithm() const
++    {
++        switch (meType)
++        {
++            case HashType::MD5:
++                return rtl_Digest_AlgorithmMD5;
++            case HashType::SHA1:
++                return rtl_Digest_AlgorithmSHA1;
++            default:
++                // sal has no SHA-2; without a TLS library only passwords and encryption need it
++                throw css::uno::RuntimeException(u"SHA-2 needs a TLS library"_ustr);
++        }
++    }
+ #endif
+ 
+     HashType const meType;
+@@ -118,6 +137,9 @@ struct HashImpl
+         HASH_Begin(mpContext);
+ #elif USE_TLS_OPENSSL
+         EVP_DigestInit_ex(mpContext, getOpenSSLType(), nullptr);
++#else
++        rtl_digest_destroy(mpContext);
++        mpContext = rtl_digest_create(getSalAlgorithm());
+ #endif
+     }
+ 
+@@ -127,6 +149,8 @@ struct HashImpl
+         HASH_Destroy(mpContext);
+ #elif USE_TLS_OPENSSL
+         EVP_MD_CTX_destroy(mpContext);
++#else
++        rtl_digest_destroy(mpContext);
+ #endif
+     }
+ };
+@@ -147,8 +171,14 @@ void Hash::update(const void* pInput, size_t length)
+ #elif USE_TLS_OPENSSL
+     EVP_DigestUpdate(mpImpl->mpContext, pInput, length);
+ #else
+-    (void)pInput;
+-    (void)length;
++    auto p = static_cast<const sal_uInt8*>(pInput);
++    while (length)
++    {
++        const sal_uInt32 n = std::min<size_t>(length, SAL_MAX_UINT32);
++        rtl_digest_update(mpImpl->mpContext, p, n);
++        p += n;
++        length -= n;
++    }
+ #endif
+ }
+ 
+@@ -167,6 +197,7 @@ std::vector<unsigned char> Hash::finalize()
+     EVP_DigestFinal_ex(mpImpl->mpContext, hash.data(), &digestWrittenLength);
+ #else
+     (void)digestWrittenLength;
++    rtl_digest_get(mpImpl->mpContext, hash.data(), hash.size());
+ #endif
+ 
+     return hash;

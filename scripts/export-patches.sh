@@ -23,7 +23,7 @@ PATCHES='
 0005-svidl-weak-type-maps-with-gcc idl/source/objects/types.cxx
 0006-externals-static-fontconfig-optional-curl external/fontconfig/ExternalProject_fontconfig.mk RepositoryExternal.mk
 0007-register-slim-module Repository.mk RepositoryModule_host.mk
-0008-icu-optional-data-filter external/icu/ExternalProject_icu.mk
+0008-icu-optional-data-filter external/icu/ExternalProject_icu.mk external/icu/UnpackedTarball_icu.mk external/icu/icu4c-data-ignore-deps.patch.1
 0009-lingucomponent-skip-duplicate-script-dictionaries lingucomponent/source/lingutil/lingutil.cxx
 0010-gbuild-optimize-for-size solenv/gbuild/platform/com_GCC_defs.mk
 0011-i18nutil-default-paper-override include/i18nutil/paper.hxx i18nutil/source/utility/paper.cxx
@@ -33,6 +33,9 @@ PATCHES='
 0015-autogen-wsl-helper-arm64 autogen.sh
 0016-windows-static-build include/sal/types.h solenv/gbuild/platform/com_MSC_class.mk solenv/gbuild/platform/com_MSC_defs.mk external/argon2/ExternalPackage_argon2.mk external/argon2/ExternalProject_argon2.mk external/lcms2/ExternalProject_lcms2.mk external/libxml2/ExternalProject_libxml2.mk external/openssl/ExternalPackage_openssl.mk external/openssl/ExternalProject_openssl.mk vcl/win/app/salshl.cxx vcl/Library_vclplug_win.mk RepositoryFixes.mk
 0017-vcl-family-of-weight-names vcl/source/font/PhysicalFontCollection.cxx
+0018-comphelper-hash-without-tls comphelper/source/misc/hash.cxx
+0019-vcl-without-jsdialog-builders vcl/source/window/builder.cxx vcl/source/control/WeldedTabbedNotebookbar.cxx
+0020-unoidl-static-binary-registries-only unoidl/source/unoidl.cxx
 '
 
 patch_paths() {

@@ -1,0 +1,27 @@
+diff --git a/unoidl/source/unoidl.cxx b/unoidl/source/unoidl.cxx
+index acf984613..cf3a609a2 100644
+--- a/unoidl/source/unoidl.cxx
++++ b/unoidl/source/unoidl.cxx
+@@ -200,6 +200,9 @@ rtl::Reference< MapCursor > Manager::createCursor(OUString const & name)
+ Manager::~Manager() noexcept {}
+ 
+ rtl::Reference< Provider > Manager::loadProvider(OUString const & uri) {
++    // A static build is a cross build: only its build tools, linked dynamically, read .idl
++    // files and the legacy registry format.
++#if !defined DISABLE_DYNLOADING
+     osl::DirectoryItem item;
+     if (osl::DirectoryItem::get(uri, item) == osl::FileBase::E_None) {
+         osl::FileStatus status(osl_FileStatus_Mask_Type);
+@@ -212,10 +215,11 @@ rtl::Reference< Provider > Manager::loadProvider(OUString const & uri) {
+     if (uri.endsWith(".idl")) {
+         return new detail::SourceFileProvider(this, uri);
+     }
++#endif
+     try {
+         return new detail::UnoidlProvider(uri);
+     } catch (FileFormatException & e) {
+-#if !ENABLE_FUZZERS
++#if !ENABLE_FUZZERS && !defined DISABLE_DYNLOADING
+         SAL_INFO(
+             "unoidl",
+             "FileFormatException \"" << e.getDetail() << "\", retrying <" << uri

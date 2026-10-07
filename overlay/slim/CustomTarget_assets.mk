@@ -17,7 +17,8 @@ slim_assets_DIR := $(gb_CustomTarget_workdir)/slim/assets
 # DEST=SOURCE pairs, see embed_files.py. The ini files LibreOffice finds by name have the
 # platform's names (bootstrap.ini on Windows); the others are named by the ini files. Which
 # share/ files are needed was found by tracing the files conversions open
-# (LO_SLIM_TRACE_FILES); missing optional files are tolerated.
+# (LO_SLIM_TRACE_FILES); missing optional files are tolerated. Not palette/standard.sob, 1 MB of
+# fill bitmaps Writer opens only to offer them in its dialogs.
 slim_assets_FILES := \
 	$(LIBO_ETC_FOLDER)/$(call gb_Helper_get_rcfile,bootstrap)=$(SRCDIR)/slim/assets/program/bootstraprc \
 	$(LIBO_ETC_FOLDER)/fundamentalrc=$(slim_assets_DIR)/fundamentalrc \
@@ -30,7 +31,7 @@ slim_assets_FILES := \
 	$(LIBO_ETC_FOLDER)/services/services.rdb=$(slim_assets_DIR)/services.rdb \
 	$(LIBO_SHARE_FOLDER)/config/soffice.cfg/svt/ui/scrollbars.ui=$(SRCDIR)/svtools/uiconfig/ui/scrollbars.ui \
 	$(LIBO_SHARE_FOLDER)/filter/oox-drawingml-cs-presets=$(INSTROOT)/$(LIBO_SHARE_FOLDER)/filter/oox-drawingml-cs-presets \
-	$(foreach ext,sob soc sod soe sog soh,$(LIBO_SHARE_FOLDER)/palette/standard.$(ext)=$(INSTROOT)/$(LIBO_SHARE_FOLDER)/palette/standard.$(ext)) \
+	$(foreach ext,soc sod soe sog soh,$(LIBO_SHARE_FOLDER)/palette/standard.$(ext)=$(INSTROOT)/$(LIBO_SHARE_FOLDER)/palette/standard.$(ext)) \
 	$(LIBO_SHARE_FOLDER)/registry=$(INSTROOT)/$(LIBO_SHARE_FOLDER)/registry \
 	$(LIBO_SHARE_FOLDER)/registry/word2pdf.xcd=$(SRCDIR)/slim/assets/share/registry/word2pdf.xcd \
 	$(LIBO_SHARE_FOLDER)/liblangtag=$(INSTROOT)/$(LIBO_SHARE_FOLDER)/liblangtag \

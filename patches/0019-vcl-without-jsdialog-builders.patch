@@ -1,0 +1,106 @@
+diff --git a/vcl/source/control/WeldedTabbedNotebookbar.cxx b/vcl/source/control/WeldedTabbedNotebookbar.cxx
+index 056f19ce1..9c36ad08d 100644
+--- a/vcl/source/control/WeldedTabbedNotebookbar.cxx
++++ b/vcl/source/control/WeldedTabbedNotebookbar.cxx
+@@ -9,13 +9,12 @@
+ 
+ #include <vcl/WeldedTabbedNotebookbar.hxx>
+ #include <vcl/svapp.hxx>
+-#include <jsdialog/jsdialogbuilder.hxx>
+ 
++// Only LibreOfficeKit makes these, and word2pdf never runs as LibreOfficeKit: no JSDialog builder.
+ WeldedTabbedNotebookbar::WeldedTabbedNotebookbar(
+     const VclPtr<vcl::Window>& pContainerWindow, const OUString& rUIFilePath,
+-    const css::uno::Reference<css::frame::XFrame>& rFrame, sal_uInt64 nWindowId)
+-    : m_xBuilder(JSInstanceBuilder::CreateNotebookbarBuilder(
+-          pContainerWindow, AllSettings::GetUIRootDir(), rUIFilePath, rFrame, nWindowId))
++    const css::uno::Reference<css::frame::XFrame>& /*rFrame*/, sal_uInt64 nWindowId)
++    : m_xBuilder(Application::CreateInterimBuilder(pContainerWindow, rUIFilePath, false, nWindowId))
+ {
+     m_xContainer = m_xBuilder->weld_container(u"NotebookBar"_ustr);
+     m_xWeldedToolbar = m_xBuilder->weld_toolbar(u"WeldedToolbar"_ustr);
+diff --git a/vcl/source/window/builder.cxx b/vcl/source/window/builder.cxx
+index df072d404..d777cde99 100644
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -20,7 +20,6 @@
+ 
+ #include <comphelper/lok.hxx>
+ #include <i18nutil/unicode.hxx>
+-#include <jsdialog/enabled.hxx>
+ #include <o3tl/string_view.hxx>
+ #include <officecfg/Office/Common.hxx>
+ #include <osl/module.hxx>
+@@ -83,7 +82,6 @@
+ #include <verticaltabctrl.hxx>
+ #include <wizdlg.hxx>
+ #include <tools/svlibrary.h>
+-#include <jsdialog/jsdialogbuilder.hxx>
+ 
+ #if defined(DISABLE_DYNLOADING) || defined(LINUX)
+ #include <dlfcn.h>
+@@ -185,60 +183,22 @@ namespace
+ 
+ }
+ 
+-std::unique_ptr<weld::Builder> Application::CreateBuilder(weld::Widget* pParent, const OUString &rUIFile, bool bMobile, sal_uInt64 nLOKWindowId)
++// No JSDialog builders (LibreOffice Online's dialogs): word2pdf never runs as LibreOfficeKit.
++std::unique_ptr<weld::Builder> Application::CreateBuilder(weld::Widget* pParent, const OUString &rUIFile, bool /*bMobile*/, sal_uInt64 /*nLOKWindowId*/)
+ {
+-    if (comphelper::LibreOfficeKit::isActive() && !jsdialog::isIgnored(rUIFile))
+-    {
+-        if (jsdialog::isBuilderEnabledForSidebar(rUIFile))
+-            return JSInstanceBuilder::CreateSidebarBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, "sidebar", nLOKWindowId);
+-        else if (jsdialog::isBuilderEnabledForPopup(rUIFile))
+-            return JSInstanceBuilder::CreatePopupBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile);
+-        else if (jsdialog::isBuilderEnabledForMenu(rUIFile))
+-            return JSInstanceBuilder::CreateMenuBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile);
+-        else if (jsdialog::isBuilderEnabledForNavigator(rUIFile))
+-            return JSInstanceBuilder::CreateSidebarBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, "navigator", nLOKWindowId);
+-        else if (jsdialog::isBuilderEnabledForQuickFind(rUIFile))
+-            return JSInstanceBuilder::CreateSidebarBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, "quickfind", nLOKWindowId);
+-        else if (jsdialog::isBuilderEnabled(rUIFile, bMobile))
+-            return JSInstanceBuilder::CreateDialogBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile);
+-        // this is notebookbar widget but converted from sidebar panel
+-        else if (jsdialog::isInterimBuilderEnabledForNotebookbar(rUIFile))
+-            return JSInstanceBuilder::CreateSidebarBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, "notebookbar", nLOKWindowId);
+-        else
+-            SAL_WARN("vcl", "UI file not enabled for JSDialogs: " << rUIFile);
+-    }
+-
+     return ImplGetSVData()->mpDefInst->CreateBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile);
+ }
+ 
+ std::unique_ptr<weld::Builder> Application::CreateInterimBuilder(vcl::Window* pParent, const OUString &rUIFile, bool bAllowCycleFocusOut, sal_uInt64 nLOKWindowId)
+ {
+-    if (comphelper::LibreOfficeKit::isActive() && !jsdialog::isIgnored(rUIFile))
+-    {
+-        // Notebookbar sub controls
+-        if (jsdialog::isInterimBuilderEnabledForNotebookbar(rUIFile))
+-            return JSInstanceBuilder::CreateNotebookbarBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, css::uno::Reference<css::frame::XFrame>(), nLOKWindowId);
+-        else if (jsdialog::isBuilderEnabledForFormulabar(rUIFile))
+-            return JSInstanceBuilder::CreateFormulabarBuilder(pParent, AllSettings::GetUIRootDir(),
+-                                                              rUIFile, nLOKWindowId);
+-        else if (jsdialog::isBuilderEnabledForAddressInput(rUIFile))
+-            return JSInstanceBuilder::CreateAddressInputBuilder(
+-                pParent, AllSettings::GetUIRootDir(), rUIFile, nLOKWindowId);
+-        else
+-            SAL_WARN("vcl", "UI file not enabled for JSDialogs: " << rUIFile);
+-    }
+-
+     return ImplGetSVData()->mpDefInst->CreateInterimBuilder(pParent, AllSettings::GetUIRootDir(), rUIFile, bAllowCycleFocusOut, nLOKWindowId);
+ }
+ 
+ weld::MessageDialog* Application::CreateMessageDialog(weld::Widget* pParent, VclMessageType eMessageType,
+                                                       VclButtonsType eButtonType, const OUString& rPrimaryMessage,
+-                                                      const ILibreOfficeKitNotifier* pNotifier)
++                                                      const ILibreOfficeKitNotifier* /*pNotifier*/)
+ {
+-    if (comphelper::LibreOfficeKit::isActive())
+-        return JSInstanceBuilder::CreateMessageDialog(pParent, eMessageType, eButtonType, rPrimaryMessage, pNotifier);
+-    else
+-        return ImplGetSVData()->mpDefInst->CreateMessageDialog(pParent, eMessageType, eButtonType, rPrimaryMessage);
++    return ImplGetSVData()->mpDefInst->CreateMessageDialog(pParent, eMessageType, eButtonType, rPrimaryMessage);
+ }
+ 
+ weld::Window* Application::GetFrameWeld(const css::uno::Reference<css::awt::XWindow>& rWindow)

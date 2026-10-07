@@ -21,7 +21,6 @@ word2pdf --help
 | runtime files | the LibreOffice installation | none: configuration, UNO registries, fontconfig rules and replacement fonts are compiled in; only installed fonts are read |
 | shared libraries | ~200 | Linux: `libc`, `libm` (glibc ≥ 2.38); macOS: `libSystem`, `libc++`, CoreFoundation, Foundation |
 | per conversion (test corpus) | | 0.05–0.2 s, peak RSS 90–110 MB |
-| size | | one executable: Linux x86-64 133 MB, arm64 106 MB; macOS arm64 102 MB |
 
 Built from LibreOffice **26.2.6.3** (pinned in `LO_VERSION`).
 
@@ -67,7 +66,8 @@ WebAssembly and fuzzing builds:
 * `overlay/slim/` is a new module with the `word2pdf` executable:
   * [docs/LIBRARIES.md](LIBRARIES.md) lists every library in the executable, its size and
     its role; libraries that are referenced but never used for a conversion (password strength
-    meter, online translation over curl, Markdown) are kept out with stubs or `--disable-curl`.
+    meter, online translation over curl, Markdown, OpenSSL) are kept out with stubs or
+    configure options (`--disable-curl`, `--with-tls=no --disable-openssl`).
   * `components.txt` lists the UNO implementations to link (Writer and its import filters,
     charts, formulas, drawing, PDF export, ...). The linker then only pulls in code reachable
     from those, so Calc, Impress, Base, dialogs, spell checking etc. never end up in the
@@ -75,16 +75,19 @@ WebAssembly and fuzzing builds:
     what a run instantiates.
   * `CustomTarget_assets.mk` compiles the runtime files (configuration `*.xcd`, UNO type and
     service registries, a few share/ files, the fontconfig configuration) into the executable;
-    `LO_SLIM_TRACE_FILES=FILE` lists which ones a run looks for.
-  * Fonts are compiled in too (6.4 MB): the metric-compatible replacements LibreOffice
+    `LO_SLIM_TRACE_FILES=FILE` lists which ones a run looks for (not all are needed: Writer
+    also opens `palette/standard.sob`, fill bitmaps for its dialogs).
+  * Fonts are compiled in too (7.6 MB): the metric-compatible replacements LibreOffice
     bundles, Carlito, Caladea and Liberation Sans, Serif and Mono, for Calibri, Cambria, Arial,
     Times New Roman and Courier New; and LibreOffice's OpenSymbol, for symbol fonts that are not
     installed (Word's bullets are in Symbol) and formulas. Not Liberation Sans Narrow, which is
-    GPL-licensed. fontconfig and FreeType read fonts from files, so each run copies them into
-    anonymous in-memory files (`memfd_create`; on macOS unlinked files in the scratch
-    directory) and registers them by LibreOffice's `/:FD:/<descriptor>` names, which its
-    FreeType, cairo and PDF font subsetting already understand. That takes about 10 ms per
-    conversion.
+    GPL-licensed. They stay on macOS too, although it has Arial, Times New Roman and Courier
+    New: documents made with LibreOffice use Liberation by name, and fontconfig would replace
+    Liberation Sans with Verdana, which is wider. fontconfig and FreeType read fonts from files,
+    so each run copies them into anonymous in-memory files (`memfd_create`; on macOS unlinked
+    files in the scratch directory) and registers them by LibreOffice's `/:FD:/<descriptor>`
+    names, which its FreeType, cairo and PDF font subsetting already understand. That takes
+    about 10 ms per conversion.
   * `make_fonts_conf.py` ends the fontconfig configuration with a rule that removes the
     generic family from requests. fontconfig 2.17 ranks it above the requested family, and
     VCL adds "sans" or "serif" to every request, so any "... Sans" font won over an alias
@@ -93,7 +96,9 @@ WebAssembly and fuzzing builds:
     (no tagged PDF, no form fields), no lock files, and a fixed locale (en-US), which
     also stops LibreOffice from running `paperconf` to guess the paper size.
   * `icu-data-remove.txt` drops ICU data LibreOffice does not use (display names of languages,
-    regions, currencies, time zones and units; charset converters): 33 MB → 14 MB.
+    regions, currencies, time zones and units; charset converters; transliteration rules, ICU's
+    own line break rules, character names, StringPrep, the spoof checker and NFKC): 33 MB →
+    11 MB.
   * All of LibreOffice's locale data is included (`--with-locales=ALL`): documents get the date
     and number formats, and the CJK line breaking, of their own language.
 * `patches/` are the changes to LibreOffice itself:
@@ -128,6 +133,15 @@ WebAssembly and fuzzing builds:
       replacement (Carlito), in that weight. On Linux LibreOffice asked fontconfig first,
       which never knows these names and answers with its generic fallback; LibreOffice on
       Windows and macOS already got there.
+  18. `comphelper`: without a TLS library (`--with-tls=no`), MD5 and SHA-1 come from sal's
+      own implementation instead of being all zeros; the PDF writer makes the document ID with
+      MD5. SHA-2 is left out: only decrypting documents, encrypting PDFs and password hashes
+      use it, and word2pdf does none of these (it refuses passwords).
+  19. `vcl`: no JSDialog builders, which make LibreOffice Online's dialogs; word2pdf never runs
+      as LibreOfficeKit.
+  20. `unoidl`: a static build reads only binary type registries, no `.idl` files or the legacy
+      registry format (a static build is a cross build, whose build tools are linked
+      dynamically).
 
 ## Building
 
@@ -149,8 +163,8 @@ itself does not download anything (`--disable-fetch-external`).
 Size: the code is compiled with `-Os` (patch 0010; -21% size and -10% memory, ~20% slower:
 +30 ms on a typical document; `LO_SLIM_MAKE_ARGS=gb_COMPILEROPTFLAGS=-O2` for speed) and
 linked with mold, which folds identical functions (-6%) and relinks in seconds. Together with
-leaving out unused libraries this took the executable from 136 MB to 103 MB. Link-time
-optimisation does not help on top of that (`--enable-lto` gives 118 MB with `-Os`).
+leaving out unused libraries this made the executable about a quarter smaller. Link-time
+optimisation does not help on top of that (`--enable-lto` makes it ~15% bigger with `-Os`).
 
 The first build of a build directory takes ~25 minutes on 16 cores; after that builds are
 incremental: changing one source file and relinking takes ~10 s.

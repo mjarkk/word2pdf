@@ -11,3 +11,18 @@
 # Charset converter tables: LibreOffice converts text encodings itself and the bundled libxml2
 # is built without ICU.
 \.cnv$
+# Converter aliases go with them.
+^cnvalias\.icu$
+# Transliteration rules: LibreOffice only uses ICU's built-in NFD, Remove and NFC
+# transliterators (to ignore diacritics when searching), which need no data.
+^translit/
+# Line break rules: i18npool breaks lines with its own rules (OpenOffice_dat); ICU's are only
+# its fallback when those do not load.
+^brkitr/line
+# Character names (dialogs), StringPrep profiles and the spoof checker (not linked), NFKC
+# (no NFKC property is asked for). Not uts46.nrm: the PDF export converts internationalized
+# domain names in links.
+^unames\.icu$
+\.spp$
+^confusables\.cfu$
+^nfkc(_cf|_scf)?\.nrm$

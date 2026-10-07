@@ -66,7 +66,6 @@ COMPONENTS = [
     ("libxslt", "LIBXSLT_TARBALL", "MIT", None, ["Copyright"]),
     ("Little CMS", "LCMS2_TARBALL", "MIT", None, ["LICENSE"]),
     ("mdds", "MDDS_TARBALL", "MIT", None, ["LICENSE"]),
-    ("OpenSSL", "OPENSSL_TARBALL", "Apache-2.0", None, ["LICENSE.txt"]),
     ("pixman", "PIXMAN_TARBALL", "MIT", None, ["COPYING"]),
     ("Raptor", "RAPTOR_TARBALL", "Apache-2.0", "LGPL-2.1+, GPL-2.0+ or Apache-2.0",
      ["LICENSE.txt", "LICENSE-2.0.txt", "NOTICE"]),
@@ -197,7 +196,7 @@ def main():
 
     with open(os.path.join(core, "COPYING.MPL")) as f:
         mpl = f.read()
-    apache = tarball_files(tarballs["OPENSSL_TARBALL"], {"LICENSE.txt"})["LICENSE.txt"][1]
+    apache = tarball_files(tarballs["RAPTOR_TARBALL"], {"LICENSE-2.0.txt"})["LICENSE-2.0.txt"][1]
     ftheader = tarball_files(tarballs["FREETYPE_TARBALL"], {"include/freetype/freetype.h"})
     freetype_year = re.search(r"Copyright \(C\) \d{4}-(\d{4})",
                               ftheader["include/freetype/freetype.h"][1]).group(1)

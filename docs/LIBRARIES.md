@@ -1,10 +1,10 @@
 # What is inside word2pdf
 
 Every library linked into the executable, with what it contributes to the binary and what it
-does when converting a Word document to PDF. Sizes come from a linker map of the 136 MB `-O2`
-build (code + data actually pulled in, not the size of the library); the current build is
-compiled with `-Os` and linked with identical code folding, which shrinks everything by roughly
-a quarter.
+does when converting a Word document to PDF. Sizes come from a linker map of an `-O2` build
+(code + data actually pulled in, not the size of the library); the current build is compiled
+with `-Os` and linked with identical code folding, which shrinks everything by roughly a
+quarter.
 
 ## Writer and the Word import filters — 31 MB
 
@@ -62,11 +62,11 @@ a quarter.
 | libjpeg-turbo, libpng, libtiff, libwebp (+sharpyuv) | 1.5 | decoders for pictures in documents |
 | lcms2 | 0.3 | colour management (ICC profiles of pictures, PDF/A output intent) |
 
-## Language support — 23 MB
+## Language support — 21 MB
 
 | library | MB | role |
 |---|---:|---|
-| ICU data | 13.1 | Unicode data: break rules and dictionaries for line breaking (CJK, Thai, …), normalisation, collation, BiDi (already trimmed from 33 MB) |
+| ICU data | 11.1 | Unicode data: break rules and dictionaries for line breaking (CJK, Thai, …), normalisation, collation, BiDi, international domain names in links (trimmed from 33 MB) |
 | ICU (icuuc, icui18n) | 2.2 | the code using that data |
 | i18npool | 2.9 | line/word breaking, character classes, calendars, numbering styles |
 | localedata_* | 3.8 | per-locale formats: dates, numbers, currency (e.g. "maandag 5 oktober") |
@@ -108,12 +108,10 @@ a quarter.
 | unoidl, reg, store, xmlreader | 0.5 | reads the type and service registries |
 | stocservices, proxyfac, gcc3_uno, components | 0.2 | UNO services, the C++ bridge, the table of linked components |
 
-## Encryption and compression — 4 MB
+## Compression — 0.1 MB
 
 | library | MB | role |
 |---|---:|---|
-| libcrypto (OpenSSL) | 3.7 | hashing and AES: opening password-protected/encrypted documents |
-| argon2 | 0.0 | key derivation for encrypted .odt |
 | zlib | 0.1 | deflate: ZIP packages and PDF stream compression |
 
 ## Linked but not used for conversion
@@ -126,6 +124,14 @@ code that never runs during a conversion can come along. Removed:
 | zxcvbn-c | 1.6 | svl PasswordHelper (password strength meter of dialogs) | stub `ZxcvbnMatch` in word2pdf.cxx |
 | curl + libssl | 1.3 | lng translate.cxx (DeepL online translation) | `--disable-curl` |
 | md4c | 0.05 | sw Markdown import | stub `md_parse` in word2pdf.cxx |
+| libcrypto (OpenSSL) | 3.7 | comphelper hashes and ciphers: decrypting documents, encrypted PDF export, password hashes | `--with-tls=no --disable-openssl`; the MD5 of the PDF's document ID comes from sal (patch 18) |
+| vcl JSDialog builders | 1.1 | vcl's widget builders (LibreOffice Online's dialogs) | patch 19 |
+| `palette/standard.sob` | 1.1 | Writer's document shell (fill bitmaps for its dialogs) | not embedded |
+| i18npool text conversion | 0.3 | i18npool's component (Hangul/Hanja and Chinese conversion dialogs) | left out of `components.txt` |
+| unoidl `.idl` and legacy registry readers | 0.2 | unoidl's provider loading (the build's own tools) | patch 20 |
+
+word2pdf refuses every password request, so an encrypted document fails to load before anything
+would decrypt it; PDFs are never exported with a password.
 
 Still in, because cutting them means patching LibreOffice's own code paths (~0.9 MB):
 
@@ -135,6 +141,7 @@ Still in, because cutting them means patching LibreOffice's own code paths (~0.9
 | xmlscript | 0.2 | oox VBA controls | Basic dialogs |
 | sb | 0.1 | sfx2 application init | the Basic macro runtime (scripting is disabled) |
 | avmedia, textconversiondlgs | 0.0 | svx media objects, sw | audio/video, Chinese conversion dialog |
+| argon2 | 0.0 | package | key derivation for encrypted .odt |
 
 The RDF libraries (librdf, raptor, rasqal, libxslt, unordf; 1.1 MB) look unused for Word
 documents, but Writer's PDF export reads paragraph metadata from the RDF repository and fails

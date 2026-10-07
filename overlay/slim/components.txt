@@ -35,8 +35,9 @@ vcl/vcl.common.component
 # PDF export
 filter/source/pdf/pdffilter.component filter_PDFFilter_get_implementation
 
-# locale data, text breaking, numbering
-i18npool/util/i18npool.component
+# locale data, text breaking, numbering; not the Hangul/Hanja and Chinese text conversion, which
+# only its dialogs use
+i18npool/util/i18npool.component -TextConversion
 
 # configuration, storage, content access, XML
 configmgr/source/configmgr.component
